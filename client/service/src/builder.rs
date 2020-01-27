@@ -50,7 +50,7 @@ use std::{
 };
 use sysinfo::{get_current_pid, ProcessExt, System, SystemExt};
 use sc_telemetry::{telemetry, SUBSTRATE_INFO};
-use sp_transaction_pool::MaintainedTransactionPool;
+use sp_transaction_pool::{MaintainedTransactionPool, ChainEvent};
 use sp_blockchain;
 use grafana_data_source::{self, record_metrics};
 
@@ -879,25 +879,38 @@ ServiceBuilder<
 			let network_state_info: Arc<dyn NetworkStateInfo + Send + Sync> = network.clone();
 			let is_validator = config.roles.is_authority();
 
-			let events = client.import_notification_stream()
-				.for_each(move |notification| {
+			let (import_stream, finality_stream) = (
+				client.import_notification_stream().map(|n| ChainEvent::Canonical {
+					id: BlockId::Hash(n.hash),
+					header: n.header,
+					retracted: n.retracted,
+				}),
+				client.finality_notification_stream().map(|n| ChainEvent::Finalized {
+					hash: n.hash
+				})
+			);
+			let events = futures::stream::select(import_stream, finality_stream)
+				.for_each(move |event| {
 					let txpool = txpool.upgrade();
 
 					if let Some(txpool) = txpool.as_ref() {
-						let future = txpool.maintain(
-							&BlockId::hash(notification.hash),
-							&notification.retracted,
-						);
+						let future = txpool.maintain(&event);
 						let _ = to_spawn_tx_.unbounded_send((
 							Box::pin(future),
 							From::from("txpool-maintain")
 						));
 					}
 
+					// offchain worker is only interested in block import events
+					let header = match event {
+						ChainEvent::Canonical { header, .. } => header,
+						_ => return ready(())
+					};
+
 					let offchain = offchain.as_ref().and_then(|o| o.upgrade());
 					if let Some(offchain) = offchain {
 						let future = offchain.on_block_imported(
-							&notification.header,
+							&header,
 							network_state_info.clone(),
 							is_validator
 						);
