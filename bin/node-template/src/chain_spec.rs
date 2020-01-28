@@ -56,19 +56,7 @@ impl Alternative {
 			Alternative::Development => ChainSpec::from_genesis(
 				"Development",
 				"dev",
-				|| testnet_genesis(
-					vec![
-						get_authority_keys_from_seed("Alice"),
-					],
-					get_account_id_from_seed::<sr25519::Public>("Alice"),
-					vec![
-						get_account_id_from_seed::<sr25519::Public>("Alice"),
-						get_account_id_from_seed::<sr25519::Public>("Bob"),
-						get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
-						get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
-					],
-					true,
-				),
+				|| development_10_millions_genesis(),
 				vec![],
 				None,
 				None,
@@ -118,10 +106,54 @@ impl Alternative {
 	}
 }
 
-fn testnet_genesis(initial_authorities: Vec<(AuraId, GrandpaId)>,
+fn development_10_millions_genesis() -> GenesisConfig {
+	let initial_authorities = vec![
+		get_authority_keys_from_seed("Alice"),
+		get_authority_keys_from_seed("Bob"),
+	];
+
+	let mut endowed_accounts = Vec::new();
+
+	let total = 1000000;
+	for index in 0..1000000 {
+		endowed_accounts.push(
+			get_account_id_from_seed::<sr25519::Public>(&format("user{}", index+1))
+		);
+		if index % 99999 == 0 {
+			println!("{}/{} done", index, total);
+		}
+	}
+
+	GenesisConfig {
+		system: Some(SystemConfig {
+			code: WASM_BINARY.to_vec(),
+			changes_trie_config: Default::default(),
+		}),
+		indices: Some(IndicesConfig {
+			ids: endowed_accounts.clone(),
+		}),
+		balances: Some(BalancesConfig {
+			balances: endowed_accounts.iter().cloned().map(|k|(k, 1 << 60)).collect(),
+			vesting: vec![],
+		}),
+		sudo: Some(SudoConfig {
+			key: get_authority_keys_from_seed("Alice"),
+		}),
+		aura: Some(AuraConfig {
+			authorities: initial_authorities.iter().map(|x| (x.0.clone())).collect(),
+		}),
+		grandpa: Some(GrandpaConfig {
+			authorities: initial_authorities.iter().map(|x| (x.1.clone(), 1)).collect(),
+		}),
+	}
+}
+
+fn testnet_genesis(
+	initial_authorities: Vec<(AuraId, GrandpaId)>,
 	root_key: AccountId,
 	endowed_accounts: Vec<AccountId>,
-	_enable_println: bool) -> GenesisConfig {
+	_enable_println: bool) -> GenesisConfig
+{
 	GenesisConfig {
 		system: Some(SystemConfig {
 			code: WASM_BINARY.to_vec(),

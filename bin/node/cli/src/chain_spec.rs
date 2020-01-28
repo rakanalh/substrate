@@ -304,12 +304,24 @@ pub fn testnet_genesis(
 }
 
 fn development_config_genesis() -> GenesisConfig {
+	let mut endowed_accounts = Vec::new();
+
+	let total = 1000000;
+	for index in 0..total {
+		endowed_accounts.push(
+			get_account_id_from_seed::<sr25519::Public>(&format!("user{}", index+1))
+		);
+		if index % 99999 == 0 {
+			println!("{}/{} done", index+1, total);
+		}
+	}
+
 	testnet_genesis(
 		vec![
 			get_authority_keys_from_seed("Alice"),
 		],
 		get_account_id_from_seed::<sr25519::Public>("Alice"),
-		None,
+		Some(endowed_accounts),
 		true,
 	)
 }
