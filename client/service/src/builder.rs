@@ -880,7 +880,7 @@ ServiceBuilder<
 			let is_validator = config.roles.is_authority();
 
 			let (import_stream, finality_stream) = (
-				client.import_notification_stream().map(|n| ChainEvent::Canonical {
+				client.import_notification_stream().map(|n| ChainEvent::NewBlock {
 					id: BlockId::Hash(n.hash),
 					header: n.header,
 					retracted: n.retracted,
@@ -891,32 +891,31 @@ ServiceBuilder<
 			);
 			let events = futures::stream::select(import_stream, finality_stream)
 				.for_each(move |event| {
-					let txpool = txpool.upgrade();
+					// offchain worker is only interested in block import events
+					match event {
+						ChainEvent::NewBlock { ref header, .. } => {
+							let offchain = offchain.as_ref().and_then(|o| o.upgrade());
+							if let Some(offchain) = offchain {
+								let future = offchain.on_block_imported(
+									header,
+									network_state_info.clone(),
+									is_validator
+								);
+								let _ = to_spawn_tx_.unbounded_send((
+									Box::pin(future),
+									From::from("offchain-on-block")
+								));
+							}
+						},
+						_ => {}
+					};
 
+					let txpool = txpool.upgrade();
 					if let Some(txpool) = txpool.as_ref() {
-						let future = txpool.maintain(&event);
+						let future = txpool.maintain(event);
 						let _ = to_spawn_tx_.unbounded_send((
 							Box::pin(future),
 							From::from("txpool-maintain")
-						));
-					}
-
-					// offchain worker is only interested in block import events
-					let header = match event {
-						ChainEvent::Canonical { header, .. } => header,
-						_ => return ready(())
-					};
-
-					let offchain = offchain.as_ref().and_then(|o| o.upgrade());
-					if let Some(offchain) = offchain {
-						let future = offchain.on_block_imported(
-							&header,
-							network_state_info.clone(),
-							is_validator
-						);
-						let _ = to_spawn_tx_.unbounded_send((
-							Box::pin(future),
-							From::from("offchain-on-block")
 						));
 					}
 
