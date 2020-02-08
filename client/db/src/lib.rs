@@ -28,6 +28,8 @@
 
 pub mod light;
 pub mod offchain;
+
+#[cfg(feature = "kvdb-rocksdb")]
 pub mod bench;
 
 mod children;
