@@ -681,7 +681,7 @@ mod dummy {
 		>(&self, _: Iter, _: Option<Dummy>) -> Result<(Self, Option<Dummy>), Self::DeriveError> { Ok((Self, None)) }
 		fn from_seed(_: &Self::Seed) -> Self { Self }
 		fn from_seed_slice(_: &[u8]) -> Result<Self, SecretStringError> { Ok(Self) }
-		fn sign(&self, _: &[u8]) -> Self::Signature { Self }
+		// fn sign(&self, _: &[u8]) -> Self::Signature { Self }
 		fn verify<M: AsRef<[u8]>>(_: &Self::Signature, _: M, _: &Self::Public) -> bool { true }
 		fn verify_weak<P: AsRef<[u8]>, M: AsRef<[u8]>>(_: &[u8], _: M, _: P) -> bool { true }
 		fn public(&self) -> Self::Public { Self }
@@ -752,7 +752,7 @@ pub trait Pair: CryptoType + Sized + Clone + Send + Sync + 'static {
 	fn from_seed_slice(seed: &[u8]) -> Result<Self, SecretStringError>;
 
 	/// Sign a message.
-	fn sign(&self, message: &[u8]) -> Self::Signature;
+	// fn sign(&self, message: &[u8]) -> Self::Signature;
 
 	/// Verify a signature on a message. Returns true if the signature is good.
 	fn verify<M: AsRef<[u8]>>(sig: &Self::Signature, message: M, pubkey: &Self::Public) -> bool;

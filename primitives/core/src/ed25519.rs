@@ -473,10 +473,10 @@ impl TraitPair for Pair {
 	}
 
 	/// Sign a message.
-	fn sign(&self, message: &[u8]) -> Signature {
-		let r = self.0.sign(message).to_bytes();
-		Signature::from_raw(r)
-	}
+	// fn sign(&self, message: &[u8]) -> Signature {
+	// 	let r = self.0.sign(message).to_bytes();
+	// 	Signature::from_raw(r)
+	// }
 
 	/// Verify a signature on a message. Returns true if the signature is good.
 	fn verify<M: AsRef<[u8]>>(sig: &Self::Signature, message: M, pubkey: &Self::Public) -> bool {

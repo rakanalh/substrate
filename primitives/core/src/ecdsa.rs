@@ -437,10 +437,10 @@ impl TraitPair for Pair {
 	}
 
 	/// Sign a message.
-	fn sign(&self, message: &[u8]) -> Signature {
-		let message = secp256k1::Message::parse(&blake2_256(message));
-		secp256k1::sign(&message, &self.secret).into()
-	}
+	// fn sign(&self, message: &[u8]) -> Signature {
+	// 	let message = secp256k1::Message::parse(&blake2_256(message));
+	// 	secp256k1::sign(&message, &self.secret).into()
+	// }
 
 	/// Verify a signature on a message. Returns true if the signature is good.
 	fn verify<M: AsRef<[u8]>>(sig: &Self::Signature, message: M, pubkey: &Self::Public) -> bool {
