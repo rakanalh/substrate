@@ -276,9 +276,23 @@ impl Store {
 		buf.push(key_type + key.as_str());
 		Some(buf)
 	}
+
+	/// Signs a message with the private key that matches
+	/// the public key passed.
+	fn _sign_with(&self, public: &Public, msg: &[u8]) -> Signature {
+		let pair = self.key_pair(public);
+		Ok(pair.sign(msg))
+	}
 }
 
 impl BareCryptoStore for Store {
+
+	/// Signs a message with the private key that matches
+	/// the public key passed.
+	fn sign_with<P: Pair>(&self, public: &P::Public, msg: &[u8]) -> Result<P::Signature, ()> {
+		self._sign_with(public, msg);
+	}
+
 	fn sr25519_public_keys(&self, key_type: KeyTypeId) -> Vec<sr25519::Public> {
 		self.public_keys_by_type::<sr25519::Public>(key_type).unwrap_or_default()
 	}
