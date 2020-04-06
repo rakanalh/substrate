@@ -17,9 +17,9 @@
 //! Module helpers for off-chain calls.
 
 use codec::Encode;
-use sp_std::convert::{TryInto, TryFrom};
+use sp_std::convert::TryFrom;
 use sp_std::prelude::Vec;
-use sp_runtime::app_crypto::RuntimeAppPublic;
+use sp_runtime::app_crypto::{AppPublic, AppSignature, RuntimeAppPublic};
 use sp_runtime::traits::{Extrinsic as ExtrinsicT, IdentifyAccount, One};
 use frame_support::{debug, storage::StorageMap};
 
@@ -69,12 +69,12 @@ where
 /// The signer is then able to:
 /// - Submit a unsigned transaction with a signed payload
 /// - Submit a signed transaction
-pub struct Signer<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>, X = ForAny> {
+pub struct Signer<T: SigningTypes, X = ForAny> {
 	accounts: Option<Vec<T::Public>>,
-	_phantom: sp_std::marker::PhantomData<(X, C)>,
+	_phantom: sp_std::marker::PhantomData<X>,
 }
 
-impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>, X> Default for Signer<T, C, X> {
+impl<T: SigningTypes, X> Default for Signer<T, X> {
 	fn default() -> Self {
 		Self {
 			accounts: Default::default(),
@@ -83,12 +83,12 @@ impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>, X> Default for Sign
 	}
 }
 
-impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>, X> Signer<T, C, X> {
-	pub fn all_accounts() -> Signer<T, C, ForAll> {
+impl<T: SigningTypes, X> Signer<T, X> {
+	pub fn all_accounts() -> Signer<T, ForAll> {
 		Default::default()
 	}
 
-	pub fn any_account() -> Signer<T, C, ForAny> {
+	pub fn any_account() -> Signer<T, ForAny> {
 		Default::default()
 	}
 
@@ -99,7 +99,7 @@ impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>, X> Signer<T, C, X> 
 }
 
 
-impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>> Signer<T, C, ForAll> {
+impl<T: SigningTypes> Signer<T, ForAll> {
 	fn for_all<F, R>(&self, f: F) -> Vec<(Account<T>, R)> where
 		F: Fn(&Account<T>) -> Option<R>,
 	{
@@ -114,11 +114,11 @@ impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>> Signer<T, C, ForAll
 				})
 				.collect()
 		} else {
-			C::RuntimeAppPublic::all()
+			<T::Public as RuntimeAppPublic>::all()
 				.into_iter()
 				.enumerate()
 				.filter_map(|(index, key)| {
-					let generic_public = C::GenericPublic::from(key);
+					let generic_public = <T::Public as AppPublic>::Generic::from(key);
 					let public = generic_public.into();
 					let account_id = public.clone().into_account();
 					let account = Account::new(index, account_id, public.clone());
@@ -129,7 +129,7 @@ impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>> Signer<T, C, ForAll
 	}
 }
 
-impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>> Signer<T, C, ForAny> {
+impl<T: SigningTypes> Signer<T, ForAny> {
 	fn for_any<F, R>(&self, f: F) -> Option<(Account<T>, R)> where
 		F: Fn(&Account<T>) -> Option<R>,
 	{
@@ -143,12 +143,12 @@ impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>> Signer<T, C, ForAny
 				}
 			}
 		} else {
-			let runtime_keys = C::RuntimeAppPublic::all()
+			let runtime_keys = <T::Public as RuntimeAppPublic>::all()
 				.into_iter()
 				.enumerate();
 
 			for (index, key) in runtime_keys {
-				let generic_public = C::GenericPublic::from(key);
+				let generic_public = <T::Public as AppPublic>::Generic::from(key);
 				let public = generic_public.into();
 				let account_id = public.clone().into_account();
 				let account = Account::new(index, account_id, public.clone());
@@ -162,41 +162,44 @@ impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>> Signer<T, C, ForAny
 	}
 }
 
-impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>> SignMessage<T> for Signer<T, C, ForAll> {
+impl<T: SigningTypes> SignMessage<T> for Signer<T, ForAll> {
 	type Result = Vec<(Account<T>, T::Signature)>;
 
 	fn sign_message(&self, message: &[u8]) -> Self::Result {
-		self.for_all(|account| C::sign(message, account.public.clone()))
+		self.for_all(|account| {
+			T::sign(&message, account.public.clone())
+		})
 	}
 
 	fn sign<TPayload, F>(&self, f: F) -> Self::Result where
 		F: Fn(&Account<T>) -> TPayload,
 		TPayload: SignedPayload<T>,
 	{
-		self.for_all(|account| f(account).sign::<C>())
+		self.for_all(|account| f(account).sign())
 	}
 }
 
-impl<T: SigningTypes, C: AppCrypto<T::Public, T::Signature>> SignMessage<T> for Signer<T, C, ForAny> {
+impl<T: SigningTypes> SignMessage<T> for Signer<T, ForAny> {
 	type Result = Option<(Account<T>, T::Signature)>;
 
 	fn sign_message(&self, message: &[u8]) -> Self::Result {
-		self.for_any(|account| C::sign(message, account.public.clone()))
+		self.for_any(|account| {
+			T::sign(&message, account.public.clone())
+		})
 	}
 
 	fn sign<TPayload, F>(&self, f: F) -> Self::Result where
 		F: Fn(&Account<T>) -> TPayload,
 		TPayload: SignedPayload<T>,
 	{
-		self.for_any(|account| f(account).sign::<C>())
+		self.for_any(|account| f(account).sign())
 	}
 }
 
 impl<
 	T: CreateSignedTransaction<LocalCall> + SigningTypes,
-	C: AppCrypto<T::Public, T::Signature>,
 	LocalCall,
-> SendSignedTransaction<T, C, LocalCall> for Signer<T, C, ForAny> {
+> SendSignedTransaction<T, LocalCall> for Signer<T, ForAny> {
 	type Result = Option<(Account<T>, Result<(), ()>)>;
 
 	fn send_signed_transaction(
@@ -212,9 +215,8 @@ impl<
 
 impl<
 	T: SigningTypes + CreateSignedTransaction<LocalCall>,
-	C: AppCrypto<T::Public, T::Signature>,
 	LocalCall,
-> SendSignedTransaction<T, C, LocalCall> for Signer<T, C, ForAll> {
+> SendSignedTransaction<T, LocalCall> for Signer<T, ForAll> {
 	type Result = Vec<(Account<T>, Result<(), ()>)>;
 
 	fn send_signed_transaction(
@@ -230,9 +232,8 @@ impl<
 
 impl<
 	T: SigningTypes + SendTransactionTypes<LocalCall>,
-	C: AppCrypto<T::Public, T::Signature>,
 	LocalCall,
-> SendUnsignedTransaction<T, LocalCall> for Signer<T, C, ForAny> {
+> SendUnsignedTransaction<T, LocalCall> for Signer<T, ForAny> {
 	type Result = Option<(Account<T>, Result<(), ()>)>;
 
 	fn send_unsigned_transaction<TPayload, F>(
@@ -246,7 +247,7 @@ impl<
 	{
 		self.for_any(|account| {
 			let payload = f(account);
-			let signature= payload.sign::<C>()?;
+			let signature= payload.sign()?;
 			let call = f2(payload, signature);
 			self.submit_unsigned_transaction(call)
 		})
@@ -255,9 +256,8 @@ impl<
 
 impl<
 	T: SigningTypes + SendTransactionTypes<LocalCall>,
-	C: AppCrypto<T::Public, T::Signature>,
 	LocalCall,
-> SendUnsignedTransaction<T, LocalCall> for Signer<T, C, ForAll> {
+> SendUnsignedTransaction<T, LocalCall> for Signer<T, ForAll> {
 	type Result = Vec<(Account<T>, Result<(), ()>)>;
 
 	fn send_unsigned_transaction<TPayload, F>(
@@ -270,7 +270,7 @@ impl<
 		TPayload: SignedPayload<T> {
 		self.for_all(|account| {
 			let payload = f(account);
-			let signature = payload.sign::<C>()?;
+			let signature = payload.sign()?;
 			let call = f2(payload, signature);
 			self.submit_unsigned_transaction(call)
 		})
@@ -335,33 +335,6 @@ pub trait AppCrypto<Public, Signature> {
 		+ TryFrom<Signature>
 		+ Into<Signature>;
 
-	fn sign(payload: &[u8], public: Public) -> Option<Signature> {
-		let p: Self::GenericPublic = public.try_into().ok()?;
-		let x = Into::<Self::RuntimeAppPublic>::into(p);
-		x.sign(&payload)
-			.map(|x| {
-				let sig: Self::GenericSignature = x.into();
-				sig
-			})
-			.map(Into::into)
-	}
-
-	fn verify(payload: &[u8], public: Public, signature: Signature) -> bool {
-		let p: Self::GenericPublic = match public.try_into() {
-			Ok(a) => a,
-			_ => return false
-		};
-		let x = Into::<Self::RuntimeAppPublic>::into(p);
-		let signature: Self::GenericSignature = match signature.try_into() {
-			Ok(a) => a,
-			_ => return false
-		};
-		let signature = Into::<<
-			Self::RuntimeAppPublic as RuntimeAppPublic
-		>::Signature>::into(signature);
-
-		x.verify(&payload, &signature)
-	}
 
 }
 
@@ -375,11 +348,30 @@ pub trait SigningTypes: crate::Trait {
 		+ PartialEq
 		+ IdentifyAccount<AccountId = Self::AccountId>
 		+ core::fmt::Debug
-		+ codec::Codec;
+		+ codec::Codec
+		+ RuntimeAppPublic
+		+ AppPublic;
 	type Signature: Clone
 		+ PartialEq
 		+ core::fmt::Debug
-		+ codec::Codec;
+		+ codec::Codec
+		+ AppSignature
+		+ From<<Self::Public as RuntimeAppPublic>::Signature>
+		+ Into<<Self::Public as RuntimeAppPublic>::Signature>;
+
+	fn sign(payload: &[u8], public: Self::Public) -> Option<Self::Signature> {
+		<Self::Public as RuntimeAppPublic>::sign(&public, &payload)
+			.map(|x| {
+				let sig: Self::Signature = x.into();
+				sig
+			})
+	}
+
+	fn verify(payload: &[u8], public: Self::Public, signature: Self::Signature) -> bool {
+		let signature = signature.into();
+
+		<Self::Public as RuntimeAppPublic>::verify(&public, &payload, &signature)
+	}
 }
 
 /// A wrapper around the transaction and call types
@@ -398,7 +390,7 @@ pub trait CreateSignedTransaction<LocalCall>: SendTransactionTypes<LocalCall> + 
 	/// in any way it wants.
 	/// Returns `None` if signed extrinsic could not be created (either because signing failed
 	/// or because of any other runtime-specific reason).
-	fn create_transaction<C: AppCrypto<Self::Public, Self::Signature>>(
+	fn create_transaction(
 		call: Self::OverarchingCall,
 		public: Self::Public,
 		account: Self::AccountId,
@@ -421,7 +413,6 @@ pub trait SignMessage<T: SigningTypes> {
 /// Submit a signed transaction onchain
 pub trait SendSignedTransaction<
 	T: SigningTypes + CreateSignedTransaction<LocalCall>,
-	C: AppCrypto<T::Public, T::Signature>,
 	LocalCall
 > {
 	type Result;
@@ -443,7 +434,7 @@ pub trait SendSignedTransaction<
 			account.id,
 			account_data.nonce,
 		);
-		let (call, signature) = T::create_transaction::<C>(
+		let (call, signature) = T::create_transaction(
 			call.into(),
 			account.public.clone(),
 			account.id.clone(),
@@ -493,11 +484,16 @@ pub trait SendUnsignedTransaction<
 pub trait SignedPayload<T: SigningTypes>: Encode {
 	fn public(&self) -> T::Public;
 
-	fn sign<C: AppCrypto<T::Public, T::Signature>>(&self) -> Option<T::Signature> {
-		self.using_encoded(|payload| C::sign(payload, self.public()))
+	fn sign(&self) -> Option<T::Signature> {
+		self.using_encoded(|payload| {
+			<T::Public as RuntimeAppPublic>::sign(&self.public(), &payload)
+				.map(Into::into)
+		})
 	}
 
-	fn verify<C: AppCrypto<T::Public, T::Signature>>(&self, signature: T::Signature) -> bool {
-		self.using_encoded(|payload| C::verify(payload, self.public(), signature))
+	fn verify(&self, signature: T::Signature) -> bool {
+		self.using_encoded(|payload| {
+			<T::Public as RuntimeAppPublic>::verify(&self.public(), &payload, &signature.into()).into()
+		})
 	}
 }
