@@ -45,6 +45,20 @@ pub enum BareCryptoStoreError {
 	Other(String)
 }
 
+pub trait Signer {
+	fn supported_keys(
+		&self,
+		id: KeyTypeId,
+	) -> Result<Vec<CryptoTypePublicPair>, BareCryptoStoreError>;
+
+	fn sign_with(
+		&self,
+		id: KeyTypeId,
+		key: &CryptoTypePublicPair,
+		msg: &[u8],
+	) -> Result<Vec<u8>, BareCryptoStoreError>;
+}
+
 /// Something that generates, stores and provides access to keys.
 pub trait BareCryptoStore: Send + Sync {
 	/// Returns all sr25519 public keys for the given key type.

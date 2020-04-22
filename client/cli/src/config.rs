@@ -19,7 +19,7 @@
 use crate::error::Result;
 use crate::{
 	init_logger, ImportParams, KeystoreParams, NetworkParams, NodeKeyParams,
-	PruningParams, SharedParams, SubstrateCli,
+	PruningParams, SignerParams, SharedParams, SubstrateCli,
 };
 use crate::arg_enums::Database;
 use app_dirs::{AppDataType, AppInfo};
@@ -55,6 +55,11 @@ pub trait CliConfiguration: Sized {
 	/// Get the PruningParams for this object
 	fn pruning_params(&self) -> Option<&PruningParams> {
 		self.import_params().map(|x| &x.pruning_params)
+	}
+
+	/// Get the SignerParams for this object
+	fn signer_params(&self) -> Option<&SignerParams> {
+		None
 	}
 
 	/// Get the KeystoreParams for this object
@@ -417,6 +422,7 @@ pub trait CliConfiguration: Sized {
 				self.node_name()?.as_str(),
 				node_key,
 			)?,
+			signer: self.signer_config()?,
 			keystore: self.keystore_config(&config_dir)?,
 			database: self.database_config(&config_dir, database_cache_size, database)?,
 			state_cache_size: self.state_cache_size()?,

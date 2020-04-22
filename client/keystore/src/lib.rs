@@ -20,11 +20,13 @@
 use std::{collections::{HashMap, HashSet}, path::PathBuf, fs::{self, File}, io::{self, Write}, sync::Arc};
 use sp_core::{
 	crypto::{IsWrappedBy, CryptoTypePublicPair, KeyTypeId, Pair as PairT, Protected, Public},
-	traits::{BareCryptoStore, BareCryptoStoreError as TraitError},
+	traits::{BareCryptoStore, BareCryptoStoreError as TraitError, Signer},
 	Encode,
 };
 use sp_application_crypto::{AppKey, AppPublic, AppPair, ed25519, sr25519};
 use parking_lot::RwLock;
+
+pub mod signers;
 
 /// Keystore pointer
 pub type KeyStorePtr = Arc<RwLock<Store>>;

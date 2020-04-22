@@ -45,6 +45,8 @@ pub struct Configuration {
 	pub network: NetworkConfiguration,
 	/// Configuration for the keystore.
 	pub keystore: KeystoreConfig,
+	/// Configuration for the signer.
+	pub signer: SignerConfig,
 	/// Configuration for the database.
 	pub database: DatabaseConfig,
 	/// Size of internal state cache in Bytes
@@ -124,6 +126,22 @@ impl KeystoreConfig {
 			Self::InMemory => None,
 		}
 	}
+}
+
+/// Type of the client signer.
+#[derive(Clone, Debug)]
+pub enum SignerType {
+	Local,
+	RemoteClient,
+	RemoteServer,
+}
+
+/// Configuration of the client signer.
+#[derive(Clone)]
+pub struct SignerConfig {
+	pub signer_type: SignerType,
+	pub host: String,
+	pub port: u32,
 }
 
 /// Configuration of the Prometheus endpoint.
