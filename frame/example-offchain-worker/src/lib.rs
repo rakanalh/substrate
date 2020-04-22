@@ -90,14 +90,21 @@ pub mod crypto {
 		app_crypto::{app_crypto, sr25519},
 		traits::Verify,
 	};
-	use sp_core::sr25519::Signature as Sr25519Signature;
+	use sp_core::sr25519::{
+		Public as GenericPublic,
+		Signature as GenericSignature
+	};
+
 	app_crypto!(sr25519, KEY_TYPE);
 
 	pub struct TestAuthId;
-	impl frame_system::offchain::AppCrypto<<Sr25519Signature as Verify>::Signer, Sr25519Signature> for TestAuthId {
+	impl frame_system::offchain::AppCrypto<
+			<GenericSignature as Verify>::Signer,
+			GenericSignature
+	> for TestAuthId {
 		type RuntimeAppPublic = Public;
-		type GenericSignature = sp_core::sr25519::Signature;
-		type GenericPublic = sp_core::sr25519::Public;
+		type GenericSignature = GenericSignature;
+		type GenericPublic = GenericPublic;
 	}
 }
 
