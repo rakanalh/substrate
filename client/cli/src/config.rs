@@ -26,8 +26,8 @@ use app_dirs::{AppDataType, AppInfo};
 use names::{Generator, Name};
 use sc_service::config::{
 	Configuration, DatabaseConfig, ExecutionStrategies, ExtTransport, KeystoreConfig,
-	NetworkConfiguration, NodeKeyConfig, PrometheusConfig, PruningMode, Role, TelemetryEndpoints,
-	TransactionPoolOptions, WasmExecutionMethod,
+	NetworkConfiguration, NodeKeyConfig, PrometheusConfig, PruningMode, Role, SignerConfig,
+	TelemetryEndpoints, TransactionPoolOptions, WasmExecutionMethod,
 };
 use sc_service::{ChainSpec, TracingReceiver};
 use std::future::Future;
@@ -147,6 +147,15 @@ pub trait CliConfiguration: Sized {
 		self.keystore_params()
 			.map(|x| x.keystore_config(base_path))
 			.unwrap_or(Ok(KeystoreConfig::InMemory))
+	}
+
+	/// Get the signer configuration.
+	///
+	/// Bu default this is retrieved from `SignerParams` if it is available.
+	fn signer_config(&self) -> Result<SignerConfig> {
+		self.signer_params()
+			.map(|x| x.signer_config())
+			.unwrap_or(Ok(Default::default()))
 	}
 
 	/// Get the database cache size.

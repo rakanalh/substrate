@@ -32,7 +32,7 @@ use sc_service::{
 	GenericChainSpec,
 	ChainSpecExtension,
 	Configuration,
-	config::{DatabaseConfig, KeystoreConfig},
+	config::{DatabaseConfig, KeystoreConfig, SignerConfig},
 	RuntimeGenesis,
 	Role,
 	Error,
@@ -174,6 +174,7 @@ fn node_config<G: RuntimeGenesis + 'static, E: ChainSpecExtension + Clone + 'sta
 			path: root.join("key"),
 			password: None
 		},
+		signer: Default::default(),
 		database: DatabaseConfig::RocksDb {
 			path: root.join("db"),
 			cache_size: 128,

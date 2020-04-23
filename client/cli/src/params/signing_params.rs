@@ -14,22 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::error::Result;
-use sc_service::config::{SignerConfig, SignerType};
+use sc_service::config::SignerConfig;
 use std::fs;
 use std::path::PathBuf;
 use structopt::StructOpt;
-
-arg_enum! {
-	SignerType
-}
+use crate::arg_enums::SignerType;
+use crate::error::Result;
 
 /// Parameters of the signer
 #[derive(Debug, StructOpt, Clone)]
 pub struct SignerParams {
 	/// Specify type of signer.
 	#[structopt(long = "signer-type", value_name = "TYPE", default_value = "local" )]
-	pub signer_type: Option<SignerType>,
+	pub signer_type: SignerType,
 
 	/// Signer host, only applicaple for RemoteClient signer type.
 	#[structopt(long = "signer-host" )]
@@ -52,8 +49,8 @@ impl SignerParams {
 		}
 
 		Ok(SignerConfig {
-			signer_type: self.signer_type,
-			host: self.signer_host,
+			signer_type: self.signer_type.into(),
+			host: self.signer_host.clone(),
 			port: self.signer_port,
 		})
 	}

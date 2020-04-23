@@ -17,6 +17,7 @@
 use crate::error::{Error, Result};
 use crate::params::ImportParams;
 use crate::params::KeystoreParams;
+use crate::params::SignerParams;
 use crate::params::NetworkParams;
 use crate::params::SharedParams;
 use crate::params::TransactionPoolParams;
@@ -241,6 +242,10 @@ pub struct RunCmd {
 	#[structopt(flatten)]
 	pub keystore_params: KeystoreParams,
 
+	#[allow(missing_docs)]
+	#[structopt(flatten)]
+	pub signer_params: SignerParams,
+
 	/// The size of the instances cache for each runtime.
 	///
 	/// The default value is 8 and the values higher than 256 are ignored.
@@ -298,6 +303,10 @@ impl CliConfiguration for RunCmd {
 
 	fn keystore_params(&self) -> Option<&KeystoreParams> {
 		Some(&self.keystore_params)
+	}
+
+	fn signer_params(&self) -> Option<&SignerParams> {
+		Some(&self.signer_params)
 	}
 
 	fn node_name(&self) -> Result<String> {

@@ -22,7 +22,7 @@ pub use sc_network::Multiaddr;
 pub use sc_network::config::{ExtTransport, MultiaddrWithPeerId, NetworkConfiguration, Role, NodeKeyConfig};
 pub use sc_executor::WasmExecutionMethod;
 
-use std::{future::Future, path::{PathBuf, Path}, pin::Pin, net::SocketAddr, sync::Arc};
+use std::{future::Future, path::{PathBuf, Path}, pin::Pin, net::SocketAddr, sync::Arc, str::FromStr};
 pub use sc_transaction_pool::txpool::Options as TransactionPoolOptions;
 use sc_chain_spec::ChainSpec;
 use sp_core::crypto::Protected;
@@ -136,12 +136,18 @@ pub enum SignerType {
 	RemoteServer,
 }
 
+impl Default for SignerType {
+	fn default() -> Self {
+		Self::Local
+	}
+}
+
 /// Configuration of the client signer.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SignerConfig {
 	pub signer_type: SignerType,
-	pub host: String,
-	pub port: u32,
+	pub host: Option<String>,
+	pub port: Option<u32>,
 }
 
 /// Configuration of the Prometheus endpoint.

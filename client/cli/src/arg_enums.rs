@@ -136,6 +136,27 @@ arg_enum! {
 	}
 }
 
+arg_enum! {
+	/// Type of the client signer.
+	#[allow(missing_docs)]
+	#[derive(Debug, Clone, Copy)]
+	pub enum SignerType {
+		Local,
+		RemoteClient,
+		RemoteServer,
+	}
+}
+
+impl Into<sc_service::config::SignerType> for SignerType {
+	fn into(self) -> sc_service::config::SignerType {
+		match self {
+			SignerType::Local => sc_service::config::SignerType::Local,
+			SignerType::RemoteClient => sc_service::config::SignerType::RemoteClient,
+			SignerType::RemoteServer => sc_service::config::SignerType::RemoteServer,
+		}
+	}
+}
+
 /// Default value for the `--execution-syncing` parameter.
 pub const DEFAULT_EXECUTION_SYNCING: ExecutionStrategy = ExecutionStrategy::NativeElseWasm;
 /// Default value for the `--execution-import-block` parameter.

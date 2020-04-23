@@ -16,6 +16,7 @@
 
 mod import_params;
 mod keystore_params;
+mod signing_params;
 mod network_params;
 mod node_key_params;
 mod pruning_params;
@@ -27,6 +28,7 @@ use std::str::FromStr;
 
 pub use crate::params::import_params::*;
 pub use crate::params::keystore_params::*;
+pub use crate::params::signing_params::*;
 pub use crate::params::network_params::*;
 pub use crate::params::node_key_params::*;
 pub use crate::params::pruning_params::*;
