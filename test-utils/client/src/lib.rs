@@ -33,7 +33,7 @@ pub use sp_keyring::{
 	ed25519::Keyring as Ed25519Keyring,
 	sr25519::Keyring as Sr25519Keyring,
 };
-pub use sp_core::{traits::BareCryptoStorePtr, tasks::executor as tasks_executor};
+pub use sp_core::{traits::{BareCryptoStorePtr, SignerPtr}, tasks::executor as tasks_executor};
 pub use sp_runtime::{Storage, StorageChild};
 pub use sp_state_machine::ExecutionStrategy;
 pub use self::client_ext::{ClientExt, ClientBlockImportExt};
@@ -72,6 +72,7 @@ pub struct TestClientBuilder<Block: BlockT, Executor, Backend, G: GenesisInit> {
 	backend: Arc<Backend>,
 	_executor: std::marker::PhantomData<Executor>,
 	keystore: Option<BareCryptoStorePtr>,
+	signer: Option<SignerPtr>,
 	fork_blocks: ForkBlocks<Block>,
 	bad_blocks: BadBlocks<Block>,
 }
@@ -107,6 +108,7 @@ impl<Block: BlockT, Executor, Backend, G: GenesisInit> TestClientBuilder<Block, 
 			genesis_init: Default::default(),
 			_executor: Default::default(),
 			keystore: None,
+			signer: None,
 			fork_blocks: None,
 			bad_blocks: None,
 		}
@@ -115,6 +117,12 @@ impl<Block: BlockT, Executor, Backend, G: GenesisInit> TestClientBuilder<Block, 
 	/// Set the keystore that should be used by the externalities.
 	pub fn set_keystore(mut self, keystore: BareCryptoStorePtr) -> Self {
 		self.keystore = Some(keystore);
+		self
+	}
+
+	/// Set the keystore that should be used by the externalities.
+	pub fn set_signer(mut self, signer: SignerPtr) -> Self {
+		self.signer = Some(signer);
 		self
 	}
 
@@ -212,6 +220,7 @@ impl<Block: BlockT, Executor, Backend, G: GenesisInit> TestClientBuilder<Block, 
 			ExecutionExtensions::new(
 				self.execution_strategies,
 				self.keystore.clone(),
+				self.signer.clone(),
 			),
 			None,
 		).expect("Creates new client");

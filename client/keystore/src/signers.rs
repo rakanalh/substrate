@@ -1,4 +1,6 @@
-use sp_core::traits::{BareCryptoStoreError, Signer};
+use std::sync::Arc;
+use parking_lot::RwLock;
+use sp_core::traits::{BareCryptoStorePtr, BareCryptoStoreError, Signer};
 use sp_core::{
 	crypto::{CryptoTypePublicPair, KeyTypeId},
 	traits::BareCryptoStore
@@ -6,11 +8,11 @@ use sp_core::{
 use crate::Store;
 
 pub struct LocalSigner {
-	keystore: Store,
+	keystore: BareCryptoStorePtr,
 }
 
 impl LocalSigner {
-	fn new(keystore: Store) -> LocalSigner {
+	pub fn new(keystore: BareCryptoStorePtr) -> LocalSigner {
 		LocalSigner {
 			keystore,
 		}
@@ -24,14 +26,14 @@ impl Signer for LocalSigner {
 		key: &CryptoTypePublicPair,
 		msg: &[u8],
 	) -> Result<Vec<std::primitive::u8>, BareCryptoStoreError> {
-		self.keystore.sign_with(id, key, msg)
+		self.keystore.read().sign_with(id, key, msg)
 	}
 
 	fn supported_keys(
 		&self,
 		id: KeyTypeId,
 	) -> Result<Vec<CryptoTypePublicPair>, BareCryptoStoreError> {
-		self.keystore.supported_keys(id, vec![])
+		self.keystore.read().supported_keys(id, vec![])
 	}
 
 }

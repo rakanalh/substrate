@@ -227,7 +227,7 @@ impl BenchDb {
 			&keyring.generate_genesis(),
 			None,
 			None,
-			ExecutionExtensions::new(profile.into_execution_strategies(), None),
+			ExecutionExtensions::new(profile.into_execution_strategies(), None, None),
 			Box::new(TaskExecutor::new()),
 			None,
 		).expect("Should not fail");

@@ -34,7 +34,7 @@ use sp_std::ops::Deref;
 #[cfg(feature = "std")]
 use sp_core::{
 	crypto::Pair,
-	traits::{KeystoreExt, CallInWasmExt, TaskExecutorExt},
+	traits::{KeystoreExt, SignerExt, CallInWasmExt, TaskExecutorExt},
 	offchain::{OffchainExt, TransactionPoolExt},
 	hexdisplay::HexDisplay,
 	storage::ChildInfo,
@@ -370,9 +370,8 @@ pub trait Crypto {
 		pub_key: &ed25519::Public,
 		msg: &[u8],
 	) -> Option<ed25519::Signature> {
-		self.extension::<KeystoreExt>()
+		self.extension::<SignerExt>()
 			.expect("No `keystore` associated for the current context!")
-			.read()
 			.sign_with(id, &pub_key.into(), msg)
 			.map(|sig| ed25519::Signature::from_slice(sig.as_slice()))
 			.ok()
@@ -505,9 +504,8 @@ pub trait Crypto {
 		pub_key: &sr25519::Public,
 		msg: &[u8],
 	) -> Option<sr25519::Signature> {
-		self.extension::<KeystoreExt>()
+		self.extension::<SignerExt>()
 			.expect("No `keystore` associated for the current context!")
-			.read()
 			.sign_with(id, &pub_key.into(), msg)
 			.map(|sig| sr25519::Signature::from_slice(sig.as_slice()))
 			.ok()

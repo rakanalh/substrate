@@ -25,7 +25,7 @@ use codec::Decode;
 use sp_core::{
 	ExecutionContext,
 	offchain::{self, OffchainExt, TransactionPoolExt},
-	traits::{BareCryptoStorePtr, KeystoreExt},
+	traits::{BareCryptoStorePtr, SignerPtr, KeystoreExt},
 };
 use sp_runtime::{
 	generic::BlockId,
@@ -82,6 +82,7 @@ impl ExtensionsFactory for () {
 pub struct ExecutionExtensions<Block: traits::Block> {
 	strategies: ExecutionStrategies,
 	keystore: Option<BareCryptoStorePtr>,
+	signer: Option<SignerPtr>,
 	// FIXME: these two are only RwLock because of https://github.com/paritytech/substrate/issues/4587
 	//        remove when fixed.
 	transaction_pool: RwLock<Option<Weak<dyn sp_transaction_pool::OffchainSubmitTransaction<Block>>>>,
@@ -93,6 +94,7 @@ impl<Block: traits::Block> Default for ExecutionExtensions<Block> {
 		Self {
 			strategies: Default::default(),
 			keystore: None,
+			signer: None,
 			transaction_pool: RwLock::new(None),
 			extensions_factory: RwLock::new(Box::new(())),
 		}
@@ -104,10 +106,11 @@ impl<Block: traits::Block> ExecutionExtensions<Block> {
 	pub fn new(
 		strategies: ExecutionStrategies,
 		keystore: Option<BareCryptoStorePtr>,
+		signer: Option<SignerPtr>,
 	) -> Self {
 		let transaction_pool = RwLock::new(None);
 		let extensions_factory = Box::new(());
-		Self { strategies, keystore, extensions_factory: RwLock::new(extensions_factory), transaction_pool }
+		Self { strategies, keystore, signer, extensions_factory: RwLock::new(extensions_factory), transaction_pool }
 	}
 
 	/// Get a reference to the execution strategies.

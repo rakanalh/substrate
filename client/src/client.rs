@@ -134,6 +134,7 @@ pub fn new_in_mem<E, Block, S, RA>(
 	executor: E,
 	genesis_storage: &S,
 	keystore: Option<sp_core::traits::BareCryptoStorePtr>,
+	signer: Option<sp_core::traits::SignerPtr>,
 	prometheus_registry: Option<Registry>,
 	spawn_handle: Box<dyn CloneableSpawn>,
 ) -> sp_blockchain::Result<Client<
@@ -146,7 +147,7 @@ pub fn new_in_mem<E, Block, S, RA>(
 	S: BuildStorage,
 	Block: BlockT,
 {
-	new_with_backend(Arc::new(in_mem::Backend::new()), executor, genesis_storage, keystore, spawn_handle, prometheus_registry)
+	new_with_backend(Arc::new(in_mem::Backend::new()), executor, genesis_storage, keystore, signer, spawn_handle, prometheus_registry)
 }
 
 /// Create a client with the explicitly provided backend.
@@ -156,6 +157,7 @@ pub fn new_with_backend<B, E, Block, S, RA>(
 	executor: E,
 	build_genesis_storage: &S,
 	keystore: Option<sp_core::traits::BareCryptoStorePtr>,
+	signer: Option<sp_core::traits::SignerPtr>,
 	spawn_handle: Box<dyn CloneableSpawn>,
 	prometheus_registry: Option<Registry>,
 ) -> sp_blockchain::Result<Client<B, LocalCallExecutor<B, E>, Block, RA>>
@@ -166,7 +168,7 @@ pub fn new_with_backend<B, E, Block, S, RA>(
 		B: backend::LocalBackend<Block> + 'static,
 {
 	let call_executor = LocalCallExecutor::new(backend.clone(), executor, spawn_handle);
-	let extensions = ExecutionExtensions::new(Default::default(), keystore);
+	let extensions = ExecutionExtensions::new(Default::default(), keystore, signer);
 	Client::new(
 		backend,
 		call_executor,

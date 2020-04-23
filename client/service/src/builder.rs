@@ -34,7 +34,7 @@ use futures::{
 	Future, FutureExt, StreamExt,
 	future::ready,
 };
-use sc_keystore::{Store as Keystore};
+use sc_keystore::{Store as Keystore, LocalSigner};
 use log::{info, warn, error};
 use sc_network::config::{Role, FinalityProofProvider, OnDemand, BoxFinalityProofRequestBuilder};
 use sc_network::{NetworkService, NetworkStateInfo};
@@ -172,6 +172,8 @@ fn new_full_parts<TBl, TRtApi, TExecDisp>(
 		KeystoreConfig::InMemory => Keystore::new_in_memory(),
 	};
 
+	let signer = Arc::new(LocalSigner::new(keystore.clone()));
+
 	let tasks_builder = {
 		let registry = config.prometheus_config.as_ref().map(|cfg| &cfg.registry);
 		TaskManagerBuilder::new(registry)?
@@ -204,6 +206,7 @@ fn new_full_parts<TBl, TRtApi, TExecDisp>(
 		let extensions = sc_client_api::execution_extensions::ExecutionExtensions::new(
 			config.execution_strategies.clone(),
 			Some(keystore.clone()),
+			Some(signer),
 		);
 
 		sc_client_db::new_client(

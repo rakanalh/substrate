@@ -28,6 +28,8 @@ use parking_lot::RwLock;
 
 pub mod signers;
 
+pub use signers::*;
+
 /// Keystore pointer
 pub type KeyStorePtr = Arc<RwLock<Store>>;
 

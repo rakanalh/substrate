@@ -45,7 +45,7 @@ pub enum BareCryptoStoreError {
 	Other(String)
 }
 
-pub trait Signer {
+pub trait Signer: Send + Sync {
 	fn supported_keys(
 		&self,
 		id: KeyTypeId,
@@ -172,10 +172,17 @@ pub trait BareCryptoStore: Send + Sync {
 
 /// A pointer to the key store.
 pub type BareCryptoStorePtr = Arc<parking_lot::RwLock<dyn BareCryptoStore>>;
+/// A pointer to the signer
+pub type SignerPtr = Arc<dyn Signer>;
 
 sp_externalities::decl_extension! {
 	/// The keystore extension to register/retrieve from the externalities.
 	pub struct KeystoreExt(BareCryptoStorePtr);
+}
+
+sp_externalities::decl_extension! {
+	/// The signer extension to register/retrieve from the externalities.
+	pub struct SignerExt(SignerPtr);
 }
 
 /// Code execution engine.
