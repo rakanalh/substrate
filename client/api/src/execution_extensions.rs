@@ -25,7 +25,7 @@ use codec::Decode;
 use sp_core::{
 	ExecutionContext,
 	offchain::{self, OffchainExt, TransactionPoolExt},
-	traits::{BareCryptoStorePtr, SignerPtr, KeystoreExt},
+	traits::{BareCryptoStorePtr, SignerPtr, KeystoreExt, SignerExt},
 };
 use sp_runtime::{
 	generic::BlockId,
@@ -165,6 +165,9 @@ impl<Block: traits::Block> ExecutionExtensions<Block> {
 		if capabilities.has(offchain::Capability::Keystore) {
 			if let Some(keystore) = self.keystore.as_ref() {
 				extensions.register(KeystoreExt(keystore.clone()));
+			}
+			if let Some(signer) = self.signer.as_ref() {
+				extensions.register(SignerExt(signer.clone()));
 			}
 		}
 
