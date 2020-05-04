@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package remotesigner;
+
+service Signer {
+  rpc Sign (SignRequest) returns (SignReply) {}
+}
+
+message SignRequest {
+  bytes message = 1;
+}
+
+message SignReply {
+  bytes message = 1;
+}

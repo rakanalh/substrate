@@ -1,5 +1,8 @@
 use std::sync::Arc;
+use futures::executor::block_on;
 use parking_lot::RwLock;
+use tonic;
+
 use sp_core::traits::{BareCryptoStorePtr, BareCryptoStoreError, Signer};
 use sp_core::{
 	crypto::{CryptoTypePublicPair, KeyTypeId},
@@ -19,6 +22,8 @@ impl LocalSigner {
 	}
 }
 
+const LOG_TARGET: &'static str = "signer";
+use log::{debug};
 impl Signer for LocalSigner {
 	fn sign_with(
 		&self,
@@ -26,6 +31,10 @@ impl Signer for LocalSigner {
 		key: &CryptoTypePublicPair,
 		msg: &[u8],
 	) -> Result<Vec<std::primitive::u8>, BareCryptoStoreError> {
+		debug!(
+			target: LOG_TARGET,
+			"SIGNING MESSAGE",
+		);
 		self.keystore.read().sign_with(id, key, msg)
 	}
 
@@ -38,17 +47,48 @@ impl Signer for LocalSigner {
 
 }
 
-#[derive(Default)]
-pub struct RemoteRestSigner {}
+pub mod RemoteGRPCSigner {
+	tonic::include_proto!("remotesigner");
+}
 
-impl Signer for RemoteRestSigner {
+#[derive(Default)]
+pub struct RemoteSigner {
+	host: String,
+	port: u32
+}
+
+impl RemoteSigner {
+	pub fn new(host: String, port: u32) -> RemoteSigner {
+		RemoteSigner {
+			host,
+			port
+		}
+	}
+}
+
+impl Signer for RemoteSigner {
 	fn sign_with(
 		&self,
 		id: sp_application_crypto::KeyTypeId,
 		key: &sp_application_crypto::CryptoTypePublicPair,
 		msg: &[u8],
 	) -> Result<Vec<u8>, BareCryptoStoreError> {
-		Err(BareCryptoStoreError::Unavailable)
+		use RemoteGRPCSigner::{
+			signer_client::SignerClient,
+			SignRequest
+		};
+		block_on(async {
+			let mut client = SignerClient::connect("http://127.0.0.1:50051").await
+				.map_err(|_| BareCryptoStoreError::Unavailable)?;
+
+			let request = tonic::Request::new(SignRequest {
+				message: "Tonic".into(),
+			});
+
+			let response = client.sign(request).await
+				.map_err(|_| BareCryptoStoreError::Unavailable)?;
+			Ok::<Vec<u8>, BareCryptoStoreError>(response.into_inner().message)
+		})
 	}
 
 	fn supported_keys(
