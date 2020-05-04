@@ -42,12 +42,6 @@ pub struct SignerParams {
 impl SignerParams {
 	/// Get the keystore configuration for the parameters
 	pub fn signer_config(&self) -> Result<SignerConfig> {
-		match self.signer_type {
-			Local => {},
-			RemoteClient => {},
-			RemoteServer => {},
-		}
-
 		Ok(SignerConfig {
 			signer_type: self.signer_type.into(),
 			host: self.signer_host.clone(),

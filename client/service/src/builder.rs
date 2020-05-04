@@ -17,8 +17,9 @@
 use crate::{Service, NetworkStatus, NetworkState, error::Error, DEFAULT_PROTOCOL_ID, MallocSizeOfWasm};
 use crate::{start_rpc_servers, build_network_future, TransactionPoolAdapter, TaskManager};
 use crate::status_sinks;
-use crate::config::{Configuration, KeystoreConfig, PrometheusConfig};
+use crate::config::{Configuration, KeystoreConfig, PrometheusConfig, SignerType};
 use crate::metrics::MetricsService;
+use sp_core::traits::SignerPtr;
 use sc_client_api::{
 	self,
 	BlockchainEvents,
@@ -34,7 +35,7 @@ use futures::{
 	Future, FutureExt, StreamExt,
 	future::ready,
 };
-use sc_keystore::{Store as Keystore, LocalSigner};
+use sc_keystore::{Store as Keystore, LocalSigner, RemoteSigner};
 use log::{info, warn, error};
 use sc_network::config::{Role, FinalityProofProvider, OnDemand, BoxFinalityProofRequestBuilder};
 use sc_network::{NetworkService, NetworkStateInfo};
@@ -172,7 +173,14 @@ fn new_full_parts<TBl, TRtApi, TExecDisp>(
 		KeystoreConfig::InMemory => Keystore::new_in_memory(),
 	};
 
-	let signer = Arc::new(LocalSigner::new(keystore.clone()));
+	let signer: SignerPtr = match &config.signer.signer_type {
+		SignerType::Local => Arc::new(LocalSigner::new(keystore.clone())),
+		SignerType::RemoteClient | SignerType::RemoteServer => {
+			let host = config.signer.host.clone().unwrap_or(String::new());
+			let port = config.signer.port.unwrap_or_default();
+			Arc::new(RemoteSigner::new(host, port))
+		}
+	};
 
 	let task_manager = {
 		let registry = config.prometheus_config.as_ref().map(|cfg| &cfg.registry);
