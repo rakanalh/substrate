@@ -1384,9 +1384,9 @@ dependencies = [
 
 [[package]]
 name = "finality-grandpa"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d7907cc24468e29b5d3ea2097e78104492b6650c55f96af1f14e7915dc155ad"
+checksum = "5ab32971efbe776e46bfbc34d5b662d8e1de51fd14e26a2eba522c0f3470fc0f"
 dependencies = [
  "either",
  "futures 0.3.4",
@@ -3479,6 +3479,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "parity-scale-codec",
+ "parking_lot 0.10.2",
  "platforms",
  "rand 0.7.3",
  "regex",
@@ -3597,6 +3598,8 @@ dependencies = [
  "sc-consensus-babe",
  "sc-consensus-babe-rpc",
  "sc-consensus-epochs",
+ "sc-finality-grandpa",
+ "sc-finality-grandpa-rpc",
  "sc-keystore",
  "sp-api",
  "sp-blockchain",
@@ -3692,6 +3695,7 @@ dependencies = [
  "futures 0.3.4",
  "log",
  "node-template-runtime",
+ "parking_lot 0.10.2",
  "sc-basic-authorship",
  "sc-cli",
  "sc-client-api",
@@ -4058,6 +4062,7 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "serde",
+ "sp-application-crypto",
  "sp-consensus-babe",
  "sp-consensus-vrf",
  "sp-core",
@@ -6237,6 +6242,7 @@ dependencies = [
  "serde",
  "sp-blockchain",
  "sp-consensus",
+ "sp-core",
  "sp-inherents",
  "sp-runtime",
  "sp-transaction-pool",
@@ -6428,6 +6434,23 @@ dependencies = [
  "substrate-test-runtime-client",
  "tempfile",
  "tokio 0.2.18",
+]
+
+[[package]]
+name = "sc-finality-grandpa-rpc"
+version = "0.8.0-dev"
+dependencies = [
+ "derive_more",
+ "finality-grandpa",
+ "futures 0.3.4",
+ "jsonrpc-core",
+ "jsonrpc-core-client",
+ "jsonrpc-derive",
+ "log",
+ "sc-finality-grandpa",
+ "serde",
+ "serde_json",
+ "sp-core",
 ]
 
 [[package]]
@@ -7441,6 +7464,7 @@ dependencies = [
 name = "sp-consensus-babe"
 version = "0.8.0-dev"
 dependencies = [
+ "merlin",
  "parity-scale-codec",
  "sp-api",
  "sp-application-crypto",
