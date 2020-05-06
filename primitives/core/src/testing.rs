@@ -26,6 +26,8 @@ use crate::{
 #[cfg(feature = "std")]
 use std::collections::HashSet;
 use codec::Encode;
+use async_trait::async_trait;
+
 /// Key type for generic Ed25519 key.
 pub const ED25519: KeyTypeId = KeyTypeId(*b"ed25");
 /// Key type for generic Sr 25519 key.
@@ -65,6 +67,7 @@ impl KeyStore {
 }
 
 #[cfg(feature = "std")]
+#[async_trait]
 impl crate::traits::BareCryptoStore for KeyStore {
 	fn keys(&self, id: KeyTypeId) -> Result<Vec<CryptoTypePublicPair>, BareCryptoStoreError> {
 		self.keys
@@ -166,7 +169,7 @@ impl crate::traits::BareCryptoStore for KeyStore {
 		Ok(provided_keys.intersection(&all_keys).cloned().collect())
 	}
 
-	fn sign_with(
+	async fn sign_with(
 		&self,
 		id: KeyTypeId,
 		key: &CryptoTypePublicPair,
