@@ -358,7 +358,7 @@ impl BareCryptoStore for Store {
 		}
 	}
 
-	fn sr25519_public_keys(&self, key_type: KeyTypeId) -> Vec<sr25519::Public> {
+	async fn sr25519_public_keys(&self, key_type: KeyTypeId) -> Vec<sr25519::Public> {
 		self.raw_public_keys(key_type)
 			.map(|v| {
 				v.into_iter()
@@ -368,7 +368,7 @@ impl BareCryptoStore for Store {
     		.unwrap_or_default()
 	}
 
-	fn sr25519_generate_new(
+	async fn sr25519_generate_new(
 		&mut self,
 		id: KeyTypeId,
 		seed: Option<&str>,
@@ -381,7 +381,7 @@ impl BareCryptoStore for Store {
 		Ok(pair.public())
 	}
 
-	fn ed25519_public_keys(&self, key_type: KeyTypeId) -> Vec<ed25519::Public> {
+	async fn ed25519_public_keys(&self, key_type: KeyTypeId) -> Vec<ed25519::Public> {
 		self.raw_public_keys(key_type)
 			.map(|v| {
 				v.into_iter()
@@ -391,7 +391,7 @@ impl BareCryptoStore for Store {
     		.unwrap_or_default()
 	}
 
-	fn ed25519_generate_new(
+	async fn ed25519_generate_new(
 		&mut self,
 		id: KeyTypeId,
 		seed: Option<&str>,
@@ -447,6 +447,7 @@ mod tests {
 	use super::*;
 	use tempfile::TempDir;
 	use sp_core::{testing::SR25519, crypto::Ss58Codec};
+	use futures::executor::block_on;
 
 	#[test]
 	fn basic_store() {
@@ -560,7 +561,7 @@ mod tests {
 		fs::write(file_name, "test").expect("Invalid file is written");
 
 		assert!(
-			store.read().sr25519_public_keys(SR25519).is_empty(),
+			block_on(store.read().sr25519_public_keys(SR25519)).is_empty(),
 		);
 	}
 }
