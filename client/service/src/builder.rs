@@ -35,7 +35,14 @@ use futures::{
 	Future, FutureExt, StreamExt,
 	future::ready,
 };
-use sc_keystore::Store as Keystore;
+use sc_keystore::{
+	Store as Keystore,
+	proxy::{
+		proxy as keystore_proxy,
+		KeystoreProxy,
+		KeystoreReceiver,
+	},
+};
 use log::{info, warn, error};
 use sc_network::config::{Role, FinalityProofProvider, OnDemand, BoxFinalityProofRequestBuilder};
 use sc_network::{NetworkService, NetworkStateInfo};
@@ -82,13 +89,15 @@ pub type BackgroundTask = Pin<Box<dyn Future<Output=()> + Send>>;
 /// generics is done when you call `build`.
 ///
 pub struct ServiceBuilder<TBl, TRtApi, TCl, TFchr, TSc, TImpQu, TFprb, TFpp,
-	TExPool, TRpc, Backend>
+						  TExPool, TRpc, Backend>
 {
 	config: Configuration,
 	pub (crate) client: Arc<TCl>,
 	backend: Arc<Backend>,
 	task_manager: TaskManager,
 	keystore: Arc<RwLock<Keystore>>,
+	keystore_proxy: Arc<KeystoreProxy>,
+	keystore_receiver: KeystoreReceiver,
 	fetcher: Option<TFchr>,
 	select_chain: Option<TSc>,
 	pub (crate) import_queue: TImpQu,
@@ -151,6 +160,8 @@ type TFullParts<TBl, TRtApi, TExecDisp> = (
 	TFullClient<TBl, TRtApi, TExecDisp>,
 	Arc<TFullBackend<TBl>>,
 	Arc<RwLock<sc_keystore::Store>>,
+	Arc<KeystoreProxy>,
+	KeystoreReceiver,
 	TaskManager,
 );
 
@@ -177,6 +188,8 @@ fn new_full_parts<TBl, TRtApi, TExecDisp>(
 		)?,
 		KeystoreConfig::InMemory => Keystore::new_in_memory(),
 	};
+	let (keystore_proxy, keystore_receiver) = keystore_proxy(keystore.clone());
+	let keystore_proxy = Arc::new(keystore_proxy);
 
 	let task_manager = {
 		let registry = config.prometheus_config.as_ref().map(|cfg| &cfg.registry);
@@ -210,6 +223,7 @@ fn new_full_parts<TBl, TRtApi, TExecDisp>(
 		let extensions = sc_client_api::execution_extensions::ExecutionExtensions::new(
 			config.execution_strategies.clone(),
 			Some(keystore.clone()),
+			Some(keystore_proxy.clone()),
 		);
 
 		new_client(
@@ -228,7 +242,7 @@ fn new_full_parts<TBl, TRtApi, TExecDisp>(
 		)?
 	};
 
-	Ok((client, backend, keystore, task_manager))
+	Ok((client, backend, keystore, keystore_proxy, keystore_receiver, task_manager))
 }
 
 
@@ -294,7 +308,7 @@ impl ServiceBuilder<(), (), (), (), (), (), (), (), (), (), ()> {
 		(),
 		TFullBackend<TBl>,
 	>, Error> {
-		let (client, backend, keystore, task_manager) = new_full_parts(&config)?;
+		let (client, backend, keystore, keystore_proxy, keystore_receiver, task_manager) = new_full_parts(&config)?;
 
 		let client = Arc::new(client);
 
@@ -303,6 +317,8 @@ impl ServiceBuilder<(), (), (), (), (), (), (), (), (), (), ()> {
 			client,
 			backend,
 			keystore,
+			keystore_proxy,
+			keystore_receiver,
 			task_manager,
 			fetcher: None,
 			select_chain: None,
@@ -345,7 +361,8 @@ impl ServiceBuilder<(), (), (), (), (), (), (), (), (), (), ()> {
 			)?,
 			KeystoreConfig::InMemory => Keystore::new_in_memory(),
 		};
-
+		let (keystore_proxy, keystore_receiver) = keystore_proxy(keystore.clone());
+		let keystore_proxy = Arc::new(keystore_proxy);
 		let executor = NativeExecutor::<TExecDisp>::new(
 			config.wasm_method,
 			config.default_heap_pages,
@@ -387,6 +404,8 @@ impl ServiceBuilder<(), (), (), (), (), (), (), (), (), (), ()> {
 			backend,
 			task_manager,
 			keystore,
+			keystore_proxy,
+			keystore_receiver,
 			fetcher: Some(fetcher.clone()),
 			select_chain: None,
 			import_queue: (),
@@ -425,6 +444,11 @@ impl<TBl, TRtApi, TCl, TFchr, TSc, TImpQu, TFprb, TFpp, TExPool, TRpc, Backend>
 		self.keystore.clone()
 	}
 
+	/// Returns a proxy to the keystore
+	pub fn keystore_proxy(&self) -> Arc<KeystoreProxy> {
+		self.keystore_proxy.clone()
+	}
+
 	/// Returns a reference to the transaction pool stored in this builder
 	pub fn pool(&self) -> Arc<TExPool> {
 		self.transaction_pool.clone()
@@ -460,6 +484,8 @@ impl<TBl, TRtApi, TCl, TFchr, TSc, TImpQu, TFprb, TFpp, TExPool, TRpc, Backend>
 			backend: self.backend,
 			task_manager: self.task_manager,
 			keystore: self.keystore,
+			keystore_proxy: self.keystore_proxy,
+			keystore_receiver: self.keystore_receiver,
 			fetcher: self.fetcher,
 			select_chain,
 			import_queue: self.import_queue,
@@ -505,6 +531,8 @@ impl<TBl, TRtApi, TCl, TFchr, TSc, TImpQu, TFprb, TFpp, TExPool, TRpc, Backend>
 			backend: self.backend,
 			task_manager: self.task_manager,
 			keystore: self.keystore,
+			keystore_proxy: self.keystore_proxy,
+			keystore_receiver: self.keystore_receiver,
 			fetcher: self.fetcher,
 			select_chain: self.select_chain,
 			import_queue,
@@ -543,6 +571,8 @@ impl<TBl, TRtApi, TCl, TFchr, TSc, TImpQu, TFprb, TFpp, TExPool, TRpc, Backend>
 			backend: self.backend,
 			task_manager: self.task_manager,
 			keystore: self.keystore,
+			keystore_proxy: self.keystore_proxy,
+			keystore_receiver: self.keystore_receiver,
 			fetcher: self.fetcher,
 			select_chain: self.select_chain,
 			import_queue: self.import_queue,
@@ -609,6 +639,8 @@ impl<TBl, TRtApi, TCl, TFchr, TSc, TImpQu, TFprb, TFpp, TExPool, TRpc, Backend>
 			backend: self.backend,
 			task_manager: self.task_manager,
 			keystore: self.keystore,
+			keystore_proxy: self.keystore_proxy,
+			keystore_receiver: self.keystore_receiver,
 			fetcher: self.fetcher,
 			select_chain: self.select_chain,
 			import_queue,
@@ -673,6 +705,8 @@ impl<TBl, TRtApi, TCl, TFchr, TSc, TImpQu, TFprb, TFpp, TExPool, TRpc, Backend>
 			task_manager: self.task_manager,
 			backend: self.backend,
 			keystore: self.keystore,
+			keystore_proxy: self.keystore_proxy,
+			keystore_receiver: self.keystore_receiver,
 			fetcher: self.fetcher,
 			select_chain: self.select_chain,
 			import_queue: self.import_queue,
@@ -701,6 +735,8 @@ impl<TBl, TRtApi, TCl, TFchr, TSc, TImpQu, TFprb, TFpp, TExPool, TRpc, Backend>
 			backend: self.backend,
 			task_manager: self.task_manager,
 			keystore: self.keystore,
+			keystore_proxy: self.keystore_proxy,
+			keystore_receiver: self.keystore_receiver,
 			fetcher: self.fetcher,
 			select_chain: self.select_chain,
 			import_queue: self.import_queue,
@@ -729,6 +765,8 @@ impl<TBl, TRtApi, TCl, TFchr, TSc, TImpQu, TFprb, TFpp, TExPool, TRpc, Backend>
 			backend: self.backend,
 			task_manager: self.task_manager,
 			keystore: self.keystore,
+			keystore_proxy: self.keystore_proxy,
+			keystore_receiver: self.keystore_receiver,
 			fetcher: self.fetcher,
 			select_chain: self.select_chain,
 			import_queue: self.import_queue,
@@ -848,6 +886,8 @@ ServiceBuilder<
 			fetcher: on_demand,
 			backend,
 			keystore,
+			keystore_proxy: _keystore_proxy,
+			keystore_receiver,
 			select_chain,
 			import_queue,
 			finality_proof_request_builder,
@@ -1029,6 +1069,13 @@ ServiceBuilder<
 			spawn_handle.spawn(
 				"on-transaction-imported",
 				events,
+			);
+		}
+
+		{
+			spawn_handle.spawn(
+				"keystore-proxy-channels-handler",
+				keystore_receiver,
 			);
 		}
 

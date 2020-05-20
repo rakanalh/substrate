@@ -206,7 +206,7 @@ macro_rules! new_full {
 				sc_service::config::Role::Authority { ref sentry_nodes } => (
 					sentry_nodes.clone(),
 					sc_authority_discovery::Role::Authority (
-						service.keystore(),
+						service.keystore_proxy(),
 					),
 				),
 				sc_service::config::Role::Sentry {..} => (
