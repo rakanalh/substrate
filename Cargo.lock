@@ -6459,6 +6459,7 @@ dependencies = [
  "async-trait",
  "derive_more",
  "futures 0.3.4",
+ "futures-util",
  "hex",
  "parking_lot 0.10.2",
  "rand 0.7.3",
