@@ -22,6 +22,7 @@ pub mod hash;
 
 use jsonrpc_derive::rpc;
 use jsonrpc_pubsub::{typed::Subscriber, SubscriptionId};
+use futures::{future::BoxFuture, compat::Compat};
 use sp_core::Bytes;
 use sp_transaction_pool::TransactionStatus;
 use self::error::{FutureResult, Result};
@@ -39,13 +40,13 @@ pub trait AuthorApi<Hash, BlockHash> {
 	fn submit_extrinsic(&self, extrinsic: Bytes) -> FutureResult<Hash>;
 
 	/// Insert a key into the keystore.
-	#[rpc(name = "author_insertKey")]
+	#[rpc(name = "author_insertKey", returns = "()")]
 	fn insert_key(
 		&self,
 		key_type: String,
 		suri: String,
 		public: Bytes,
-	) -> Result<()>;
+	) -> Compat<BoxFuture<'static, jsonrpc_core::Result<()>>>;
 
 	/// Generate new session keys and returns the corresponding public keys.
 	#[rpc(name = "author_rotateKeys")]
@@ -56,14 +57,21 @@ pub trait AuthorApi<Hash, BlockHash> {
 	/// `session_keys` is the SCALE encoded session keys object from the runtime.
 	///
 	/// Returns `true` iff all private keys could be found.
-	#[rpc(name = "author_hasSessionKeys")]
-	fn has_session_keys(&self, session_keys: Bytes) -> Result<bool>;
+	#[rpc(name = "author_hasSessionKeys", returns = "bool")]
+	fn has_session_keys(
+		&self,
+		session_keys: Bytes,
+	) -> Compat<BoxFuture<'static, jsonrpc_core::Result<bool>>>;
 
 	/// Checks if the keystore has private keys for the given public key and key type.
 	///
 	/// Returns `true` if a private key could be found.
-	#[rpc(name = "author_hasKey")]
-	fn has_key(&self, public_key: Bytes, key_type: String) -> Result<bool>;
+	#[rpc(name = "author_hasKey", returns = "bool")]
+	fn has_key(
+		&self,
+		public_key: Bytes,
+		key_type: String,
+	) -> Compat<BoxFuture<'static, jsonrpc_core::Result<bool>>>;
 
 	/// Returns all pending extrinsics, potentially grouped by sender.
 	#[rpc(name = "author_pendingExtrinsics")]

@@ -29,12 +29,13 @@ use rpc::futures::{
 	Sink, Future,
 	future::result,
 };
-use futures::{StreamExt as _, compat::Compat, executor::block_on};
-use futures::future::{ready, FutureExt, TryFutureExt};
+use futures::{StreamExt as _, compat::Compat};
+use futures::future::{ready, BoxFuture, FutureExt, TryFutureExt};
 use sc_rpc_api::{DenyUnsafe, Subscriptions};
+use sc_keystore::proxy::{KeystoreResponse, KeystoreProxy};
 use jsonrpc_pubsub::{typed::Subscriber, SubscriptionId};
 use codec::{Encode, Decode};
-use sp_core::{Bytes, traits::BareCryptoStorePtr};
+use sp_core::Bytes;
 use sp_api::ProvideRuntimeApi;
 use sp_runtime::generic;
 use sp_transaction_pool::{
@@ -56,7 +57,7 @@ pub struct Author<P, Client> {
 	/// Subscriptions manager
 	subscriptions: Subscriptions,
 	/// The key store.
-	keystore: BareCryptoStorePtr,
+	keystore: Arc<KeystoreProxy>,
 	/// Whether to deny unsafe calls
 	deny_unsafe: DenyUnsafe,
 }
@@ -67,7 +68,7 @@ impl<P, Client> Author<P, Client> {
 		client: Arc<Client>,
 		pool: Arc<P>,
 		subscriptions: Subscriptions,
-		keystore: BareCryptoStorePtr,
+		keystore: Arc<KeystoreProxy>,
 		deny_unsafe: DenyUnsafe,
 	) -> Self {
 		Author {
@@ -101,14 +102,25 @@ impl<P, Client> AuthorApi<TxHash<P>, BlockHash<P>> for Author<P, Client>
 		key_type: String,
 		suri: String,
 		public: Bytes,
-	) -> Result<()> {
-		self.deny_unsafe.check_if_safe()?;
+	) -> Compat<BoxFuture<'static, rpc::Result<()>>> {
+		if let Err(err) = self.deny_unsafe.check_if_safe() {
+			return async move { Err(err.into()) }.boxed().compat();
+		}
 
-		let key_type = key_type.as_str().try_into().map_err(|_| Error::BadKeyType)?;
-		let mut keystore = self.keystore.write();
-		block_on(keystore.insert_unknown(key_type, &suri, &public[..]))
-			.map_err(|_| Error::KeyStoreUnavailable)?;
-		Ok(())
+		let key_type = match key_type.as_str().try_into() {
+			Ok(key_type) => key_type,
+			Err(_) => return async move { Err((Error::BadKeyType).into()) }.boxed().compat(),
+		};
+
+		let keystore = self.keystore.clone();
+
+		async move {
+			let response = keystore
+				.insert_unknown(key_type, &suri, &public[..])
+				.await
+				.map_err(|_| rpc::Error::internal_error());
+			response.map(|_| ()).map_err(|_| rpc::Error::internal_error())
+		}.boxed().compat()
 	}
 
 	fn rotate_keys(&self) -> Result<Bytes> {
@@ -121,24 +133,85 @@ impl<P, Client> AuthorApi<TxHash<P>, BlockHash<P>> for Author<P, Client>
 		).map(Into::into).map_err(|e| Error::Client(Box::new(e)))
 	}
 
-	fn has_session_keys(&self, session_keys: Bytes) -> Result<bool> {
-		self.deny_unsafe.check_if_safe()?;
+	fn has_session_keys(
+		&self,
+		session_keys: Bytes,
+	) -> Compat<BoxFuture<'static, rpc::Result<bool>>> {
+		if let Err(err) = self.deny_unsafe.check_if_safe() {
+			return async move { Err(err.into()) }.boxed().compat();
+		}
 
 		let best_block_hash = self.client.info().best_hash;
+
 		let keys = self.client.runtime_api().decode_session_keys(
 			&generic::BlockId::Hash(best_block_hash),
 			session_keys.to_vec(),
-		).map_err(|e| Error::Client(Box::new(e)))?
-			.ok_or_else(|| Error::InvalidSessionKeys)?;
+		).map(|v| v.ok_or_else(|| Error::InvalidSessionKeys))
+		.map_err(|e| Error::Client(Box::new(e)));
 
-		Ok(block_on(self.keystore.read().has_keys(&keys)))
+
+		let keys = match keys {
+			Ok(val) => {
+				val
+			},
+			Err(e) => return async move {
+				Err(e.into())
+			}.boxed().compat(),
+		};
+		let keys = match keys {
+			Ok(val) => {
+				val
+			},
+			Err(e) => return async move {
+				Err(e.into())
+			}.boxed().compat(),
+		};
+		let keystore = self.keystore.clone();
+
+		async move {
+			let response = keystore
+				.has_keys(&keys)
+				.await
+				.map_err(|_| rpc::Error::internal_error());
+			response.map(|result| {
+				match result {
+					KeystoreResponse::HasKeys(result) => result,
+					_ => false,
+				}
+			}).map_err(|_| rpc::Error::internal_error())
+		}.boxed().compat()
 	}
 
-	fn has_key(&self, public_key: Bytes, key_type: String) -> Result<bool> {
-		self.deny_unsafe.check_if_safe()?;
+	fn has_key(
+		&self,
+		public_key: Bytes,
+		key_type: String,
+	) -> Compat<BoxFuture<'static, rpc::Result<bool>>> {
+		if let Err(err) = self.deny_unsafe.check_if_safe() {
+			return async move { Err(err.into()) }.boxed().compat();
+		}
 
-		let key_type = key_type.as_str().try_into().map_err(|_| Error::BadKeyType)?;
-		Ok(block_on(self.keystore.read().has_keys(&[(public_key.to_vec(), key_type)])))
+		let key_type = match key_type.as_str().try_into() {
+			Ok(key_type) => key_type,
+			Err(_) => return async move { Err((Error::BadKeyType).into()) }.boxed().compat(),
+		};
+
+		let keystore = self.keystore.clone();
+
+		async move {
+			let response = keystore
+				.has_keys(&[(public_key.to_vec(), key_type)])
+				.await
+				.map_err(|_| rpc::Error::internal_error());
+			response.map(|result| {
+				match result {
+					KeystoreResponse::HasKeys(result) => result,
+					_ => false,
+				}
+			}).map_err(|_| rpc::Error::internal_error())
+		}.boxed().compat()
+
+		// Ok(block_on(self.keystore.read().has_keys(&[(public_key.to_vec(), key_type)])))
 	}
 
 	fn submit_extrinsic(&self, ext: Bytes) -> FutureResult<TxHash<P>> {
