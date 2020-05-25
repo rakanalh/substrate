@@ -108,6 +108,7 @@ use sc_client_api::{
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 
 use futures::prelude::*;
+use futures::executor::block_on;
 use log::{debug, info, log, trace, warn};
 use prometheus_endpoint::Registry;
 use sc_consensus_slots::{
@@ -529,12 +530,12 @@ impl<B, C, E, I, Error, SO> sc_consensus_slots::SimpleSlotWorker<B> for BabeWork
 			// add it to a digest item.
 			let public_type_pair = public.clone().into();
 			let public = public.to_raw_vec();
-			let signature = keystore.read()
-				.sign_with(
+			let keystore = keystore.read();
+			let signature = block_on(keystore.sign_with(
 					<AuthorityId as AppKey>::ID,
 					&public_type_pair,
 					header_hash.as_ref()
-				)
+				))
 				.map_err(|e| sp_consensus::Error::CannotSign(
 					public.clone(), e.to_string(),
 				))?;

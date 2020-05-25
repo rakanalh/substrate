@@ -36,6 +36,7 @@ use std::{
 };
 
 use futures::prelude::*;
+use futures::executor::block_on;
 use parking_lot::Mutex;
 use log::{debug, info, trace};
 use prometheus_endpoint::Registry;
@@ -282,13 +283,12 @@ impl<B, C, E, I, P, Error, SO> sc_consensus_slots::SimpleSlotWorker<B> for AuraW
 			// add it to a digest item.
 			let public_type_pair = public.to_public_crypto_pair();
 			let public = public.to_raw_vec();
-			let signature = keystore.read()
-				.sign_with(
+			let keystore = keystore.read();
+			let signature = block_on(keystore.sign_with(
 					<AuthorityId<P> as AppKey>::ID,
 					&public_type_pair,
 					header_hash.as_ref()
-				)
-				.map_err(|e| sp_consensus::Error::CannotSign(
+				)).map_err(|e| sp_consensus::Error::CannotSign(
 					public.clone(), e.to_string(),
 				))?;
 			let signature = signature.clone().try_into()
