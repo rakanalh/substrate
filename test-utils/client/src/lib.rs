@@ -44,6 +44,7 @@ use std::collections::HashMap;
 use sp_core::storage::ChildInfo;
 use sp_runtime::traits::{Block as BlockT, BlakeTwo256};
 use sc_service::client::{LocalCallExecutor, ClientConfig};
+use sc_keystore;
 
 /// Test client light database backend.
 pub type LightBackend<Block> = client::light::backend::Backend<
@@ -72,7 +73,7 @@ pub struct TestClientBuilder<Block: BlockT, Executor, Backend, G: GenesisInit> {
 	child_storage_extension: HashMap<Vec<u8>, StorageChild>,
 	backend: Arc<Backend>,
 	_executor: std::marker::PhantomData<Executor>,
-	keystore: Option<BareCryptoStorePtr>,
+	keystore: Option<Arc<sc_keystore::proxy::KeystoreProxy>>,
 	fork_blocks: ForkBlocks<Block>,
 	bad_blocks: BadBlocks<Block>,
 }
@@ -114,7 +115,7 @@ impl<Block: BlockT, Executor, Backend, G: GenesisInit> TestClientBuilder<Block, 
 	}
 
 	/// Set the keystore that should be used by the externalities.
-	pub fn set_keystore(mut self, keystore: BareCryptoStorePtr) -> Self {
+	pub fn set_keystore(mut self, keystore: Arc<sc_keystore::proxy::KeystoreProxy>) -> Self {
 		self.keystore = Some(keystore);
 		self
 	}
@@ -212,7 +213,7 @@ impl<Block: BlockT, Executor, Backend, G: GenesisInit> TestClientBuilder<Block, 
 			self.bad_blocks,
 			ExecutionExtensions::new(
 				self.execution_strategies,
-				self.keystore.clone(),
+				self.keystore
 			),
 			None,
 			ClientConfig::default(),

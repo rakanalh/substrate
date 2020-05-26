@@ -123,7 +123,7 @@ pub struct Service<TBl, TCl, TSc, TNetStatus, TNet, TTxPool, TOc> {
 	_telemetry: Option<sc_telemetry::Telemetry>,
 	_telemetry_on_connect_sinks: Arc<Mutex<Vec<TracingUnboundedSender<()>>>>,
 	_offchain_workers: Option<Arc<TOc>>,
-	keystore: sc_keystore::KeyStorePtr,
+	keystore: Arc<sc_keystore::proxy::KeystoreProxy>,
 	marker: PhantomData<TBl>,
 	prometheus_registry: Option<prometheus_endpoint::Registry>,
 }
@@ -174,7 +174,7 @@ pub trait AbstractService: Future<Output = Result<(), Error>> + Send + Unpin + S
 	fn spawn_task_handle(&self) -> SpawnTaskHandle;
 
 	/// Returns the keystore that stores keys.
-	fn keystore(&self) -> sc_keystore::KeyStorePtr;
+	fn keystore(&self) -> Arc<sc_keystore::proxy::KeystoreProxy>;
 
 	/// Starts an RPC query.
 	///
@@ -246,7 +246,7 @@ where
 		self._telemetry.as_ref().map(|t| t.clone())
 	}
 
-	fn keystore(&self) -> sc_keystore::KeyStorePtr {
+	fn keystore(&self) -> Arc<sc_keystore::proxy::KeystoreProxy> {
 		self.keystore.clone()
 	}
 

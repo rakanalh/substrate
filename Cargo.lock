@@ -8189,6 +8189,7 @@ dependencies = [
  "sc-client-db",
  "sc-consensus",
  "sc-executor",
+ "sc-keystore",
  "sc-service",
  "sp-blockchain",
  "sp-consensus",
