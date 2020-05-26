@@ -25,12 +25,11 @@ use sp_core::{
 	Encode,
 };
 use sp_application_crypto::{AppKey, AppPublic, AppPair, ed25519, sr25519, ecdsa};
-use parking_lot::RwLock;
 /// Proxy module
 pub mod proxy;
 
 /// Keystore pointer
-pub type KeyStorePtr = Arc<RwLock<Store>>;
+pub type KeyStorePtr = Arc<proxy::KeystoreProxy>;
 
 /// Keystore error.
 #[derive(Debug, derive_more::Display, derive_more::From)]
@@ -103,21 +102,21 @@ impl Store {
 	/// Open the store at the given path.
 	///
 	/// Optionally takes a password that will be used to encrypt/decrypt the keys.
-	pub fn open<T: Into<PathBuf>>(path: T, password: Option<Protected<String>>) -> Result<KeyStorePtr> {
+	pub fn open<T: Into<PathBuf>>(path: T, password: Option<Protected<String>>) -> Result<Store> {
 		let path = path.into();
 		fs::create_dir_all(&path)?;
 
 		let instance = Self { path: Some(path), additional: HashMap::new(), password };
-		Ok(Arc::new(RwLock::new(instance)))
+		Ok(instance)
 	}
 
 	/// Create a new in-memory store.
-	pub fn new_in_memory() -> KeyStorePtr {
-		Arc::new(RwLock::new(Self {
+	pub fn new_in_memory() -> Store {
+		Self {
 			path: None,
 			additional: HashMap::new(),
 			password: None
-		}))
+		}
 	}
 
 	/// Get the key phrase for the given public key and key type from the in-memory store.
