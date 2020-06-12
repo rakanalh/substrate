@@ -29,9 +29,6 @@ use codec::{Encode, Decode, Input, Codec};
 use sp_runtime::{ConsensusEngineId, RuntimeDebug, traits::NumberFor};
 use sp_std::borrow::Cow;
 use sp_std::vec::Vec;
-#[cfg(feature = "std")]
-use sp_core::traits::{BareCryptoStorePtr, Error as StoreError};
-use sp_std::convert::TryInto;
 
 #[cfg(feature = "std")]
 use log::debug;
@@ -368,36 +365,6 @@ where
 
 		Err(())
 	}
-}
-
-/// Localizes the message to the given set and round and signs the payload.
-#[cfg(feature = "std")]
-pub async fn sign_message<H, N>(
-	keystore: BareCryptoStorePtr,
-	message: grandpa::Message<H, N>,
-	public: AuthorityId,
-	round: RoundNumber,
-	set_id: SetId,
-) -> Result<grandpa::SignedMessage<H, N, AuthoritySignature, AuthorityId>, StoreError>
-where
-	H: Encode,
-	N: Encode,
-{
-	use sp_core::crypto::Public;
-	use sp_application_crypto::AppKey;
-
-	let encoded = localized_payload(round, set_id, &message);
-	let signature = keystore.read()
-		.sign_with(AuthorityId::ID, &public.to_public_crypto_pair(), &encoded[..])
-		.await?
-		.try_into()
-		.map_err(|_| StoreError::Other("Could not convert signature".to_owned()))?;
-
-	Ok(grandpa::SignedMessage {
-		message,
-		signature,
-		id: public,
-	})
 }
 
 /// WASM function call to check for pending changes.

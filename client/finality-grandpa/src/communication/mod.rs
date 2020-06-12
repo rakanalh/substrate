@@ -29,13 +29,12 @@
 //! In the future, there will be a fallback for allowing sending the same message
 //! under certain conditions that are used to un-stick the protocol.
 
-use futures::{prelude::*, channel::mpsc};
+use futures::{ready, prelude::*, channel::mpsc, future::FutureExt};
 use log::{debug, trace};
 use parking_lot::Mutex;
 use prometheus_endpoint::Registry;
 use std::{pin::Pin, sync::Arc, task::{Context, Poll}};
 
-use sp_core::traits::BareCryptoStorePtr;
 use finality_grandpa::Message::{Prevote, Precommit, PrimaryPropose};
 use finality_grandpa::{voter, voter_set::VoterSet};
 use sc_network::{NetworkService, ReputationChange};
@@ -43,6 +42,7 @@ use sc_network_gossip::{GossipEngine, Network as GossipNetwork};
 use parity_scale_codec::{Encode, Decode};
 use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT, NumberFor};
 use sc_telemetry::{telemetry, CONSENSUS_DEBUG, CONSENSUS_INFO};
+use sc_keystore::proxy::KeystoreProxy;
 
 use crate::{
 	CatchUp, Commit, CommunicationIn, CommunicationOutH,
@@ -272,7 +272,7 @@ impl<B: BlockT, N: Network<B>> NetworkBridge<B, N> {
 	/// network all within the current set.
 	pub(crate) fn round_communication(
 		&self,
-		keystore: Option<BareCryptoStorePtr>,
+		keystore: Option<Arc<KeystoreProxy>>,
 		round: Round,
 		set_id: SetId,
 		voters: Arc<VoterSet<AuthorityId>>,
@@ -357,6 +357,7 @@ impl<B: BlockT, N: Network<B>> NetworkBridge<B, N> {
 			local_id,
 			sender: tx,
 			has_voted,
+			pending_msg: None,
 		};
 
 		// Combine incoming votes from external GRANDPA nodes with outgoing
@@ -619,39 +620,24 @@ pub struct Round(pub RoundNumber);
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Encode, Decode)]
 pub struct SetId(pub SetIdNumber);
 
-/// A sink for outgoing messages to the network. Any messages that are sent will
-/// be replaced, as appropriate, according to the given `HasVoted`.
-/// NOTE: The votes are stored unsigned, which means that the signatures need to
-/// be "stable", i.e. we should end up with the exact same signed message if we
-/// use the same raw message and key to sign. This is currently true for
-/// `ed25519` and `BLS` signatures (which we might use in the future), care must
-/// be taken when switching to different key types.
-pub(crate) struct OutgoingMessages<Block: BlockT> {
+type PendingMessageFuture<Block: BlockT> = Box<dyn Future<
+		Output = Result<SignedMessage<Block>, Error,
+		>> + Send + 'static>;
+
+struct PendingOutgoingMessage<Block: BlockT> {
 	round: RoundNumber,
 	set_id: SetIdNumber,
 	local_id: Option<AuthorityId>,
-	sender: mpsc::Sender<SignedMessage<Block>>,
-	network: Arc<Mutex<GossipEngine<Block>>>,
+	keystore: Option<Arc<KeystoreProxy>>,
 	has_voted: HasVoted<Block>,
-	keystore: Option<BareCryptoStorePtr>,
+	msg: Message<Block>,
+	sign_future: Option<PendingMessageFuture<Block>>,
 }
 
-impl<B: BlockT> Unpin for OutgoingMessages<B> {}
-
-impl<Block: BlockT> Sink<Message<Block>> for OutgoingMessages<Block>
-{
-	type Error = Error;
-
-	fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-		Sink::poll_ready(Pin::new(&mut self.sender), cx)
-			.map(|elem| { elem.map_err(|e| {
-				Error::Network(format!("Failed to poll_ready channel sender: {:?}", e))
-			})})
-	}
-
-	fn start_send(mut self: Pin<&mut Self>, mut msg: Message<Block>) -> Result<(), Self::Error> {
+impl<Block: BlockT> PendingOutgoingMessage<Block> {
+	fn sign(&mut self) -> Result<(), Error> {
 		// if we've voted on this round previously under the same key, send that vote instead
-		match &mut msg {
+		match &mut self.msg {
 			finality_grandpa::Message::PrimaryPropose(ref mut vote) =>
 				if let Some(propose) = self.has_voted.propose() {
 					*vote = propose.clone();
@@ -675,50 +661,122 @@ impl<Block: BlockT> Sink<Message<Block>> for OutgoingMessages<Block>
 				}
 			};
 
-			let target_hash = *(msg.target().0);
-			let signed = sp_finality_grandpa::sign_message(
-				keystore,
-				msg,
+			self.sign_future = Some(Box::new(sp_finality_grandpa::sign_message(
+				keystore.clone(),
+				self.msg,
 				public.clone(),
 				self.round,
 				self.set_id,
-			).ok_or(
-				Error::Signing(format!(
+			)));
+		}
+
+		Ok(())
+	}
+}
+
+impl<Block: BlockT> Future for PendingOutgoingMessage<Block> {
+	type Output = Result<SignedMessage<Block>, Error>;
+
+	fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+		if let Some(mut future) = self.sign_future {
+			let result = ready!(future.poll_unpin(cx));
+			return Poll::Ready(result);
+		}
+		Poll::Pending
+	}
+}
+
+/// A sink for outgoing messages to the network. Any messages that are sent will
+/// be replaced, as appropriate, according to the given `HasVoted`.
+/// NOTE: The votes are stored unsigned, which means that the signatures need to
+/// be "stable", i.e. we should end up with the exact same signed message if we
+/// use the same raw message and key to sign. This is currently true for
+/// `ed25519` and `BLS` signatures (which we might use in the future), care must
+/// be taken when switching to different key types.
+pub(crate) struct OutgoingMessages<Block: BlockT> {
+	round: RoundNumber,
+	set_id: SetIdNumber,
+	local_id: Option<AuthorityId>,
+	sender: mpsc::Sender<SignedMessage<Block>>,
+	network: Arc<Mutex<GossipEngine<Block>>>,
+	has_voted: HasVoted<Block>,
+	keystore: Option<Arc<KeystoreProxy>>,
+	pending_msg: Option<PendingOutgoingMessage<Block>>
+}
+
+impl<B: BlockT> Unpin for OutgoingMessages<B> {}
+
+impl<Block: BlockT> OutgoingMessages<Block> {
+	fn send_message(&self, msg: Message<Block>, signed: SignedMessage<Block>) -> Result<(), Error> {
+		let message = GossipMessage::Vote(VoteMessage::<Block> {
+			message: signed.clone(),
+			round: Round(self.round),
+			set_id: SetId(self.set_id),
+		});
+
+		let target_hash = *(msg.target().0);
+
+		debug!(
+			target: "afg",
+			"Announcing block {} to peers which we voted on in round {} in set {}",
+			target_hash,
+			self.round,
+			self.set_id,
+		);
+
+		telemetry!(
+			CONSENSUS_DEBUG; "afg.announcing_blocks_to_voted_peers";
+			"block" => ?target_hash, "round" => ?self.round, "set_id" => ?self.set_id,
+		);
+
+		// announce the block we voted on to our peers.
+		self.network.lock().announce(target_hash, Vec::new());
+
+		// propagate the message to peers
+		let topic = round_topic::<Block>(self.round, self.set_id);
+		self.network.lock().gossip_message(topic, message.encode(), false);
+
+		// forward the message to the inner sender.
+		return self.sender.start_send(signed).map_err(|e| {
+			Error::Network(format!("Failed to start_send on channel sender: {:?}", e))
+		});
+	}
+}
+
+impl<Block: BlockT> Sink<Message<Block>> for OutgoingMessages<Block>
+{
+	type Error = Error;
+
+	fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+		if let Some(pending_msg) = self.pending_msg {
+			let result = ready!(Box::pin(pending_msg).poll_unpin(cx));
+			let target_hash = *(pending_msg.msg.target().0);
+			let signed = result.map_err(
+				|e| Error::Signing(format!(
 					"Failed to sign GRANDPA vote for round {} targetting {:?}", self.round, target_hash
 				))
 			)?;
+			self.send_message(pending_msg.msg, signed);
+		}
 
-			let message = GossipMessage::Vote(VoteMessage::<Block> {
-				message: signed.clone(),
-				round: Round(self.round),
-				set_id: SetId(self.set_id),
-			});
+		Sink::poll_ready(Pin::new(&mut self.sender), cx)
+			.map(|elem| { elem.map_err(|e| {
+				Error::Network(format!("Failed to poll_ready channel sender: {:?}", e))
+			})})
+	}
 
-			debug!(
-				target: "afg",
-				"Announcing block {} to peers which we voted on in round {} in set {}",
-				target_hash,
-				self.round,
-				self.set_id,
-			);
-
-			telemetry!(
-				CONSENSUS_DEBUG; "afg.announcing_blocks_to_voted_peers";
-				"block" => ?target_hash, "round" => ?self.round, "set_id" => ?self.set_id,
-			);
-
-			// announce the block we voted on to our peers.
-			self.network.lock().announce(target_hash, Vec::new());
-
-			// propagate the message to peers
-			let topic = round_topic::<Block>(self.round, self.set_id);
-			self.network.lock().gossip_message(topic, message.encode(), false);
-
-			// forward the message to the inner sender.
-			return self.sender.start_send(signed).map_err(|e| {
-				Error::Network(format!("Failed to start_send on channel sender: {:?}", e))
-			});
+	fn start_send(mut self: Pin<&mut Self>, mut msg: Message<Block>) -> Result<(), Self::Error> {
+		let pending = PendingOutgoingMessage {
+			round: self.round,
+			set_id: self.set_id,
+			local_id: self.local_id,
+			keystore: self.keystore,
+			has_voted: self.has_voted,
+			msg,
+			sign_future: None,
 		};
+		pending.sign()?;
+		self.pending_msg = Some(pending);
 
 		Ok(())
 	}

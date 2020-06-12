@@ -58,6 +58,7 @@
 
 use futures::{
 	prelude::*,
+	executor::block_on,
 	StreamExt,
 };
 use log::{debug, info};
@@ -1090,6 +1091,36 @@ pub fn setup_disabled_grandpa<Block: BlockT, Client, N>(
 	Ok(())
 }
 
+/// Localizes the message to the given set and round and signs the payload.
+#[cfg(feature = "std")]
+pub async fn sign_message<H, N>(
+	keystore: Arc<KeystoreProxy>,
+	message: grandpa::Message<H, N>,
+	public: AuthorityId,
+	round: RoundNumber,
+	set_id: SetId,
+) -> Result<grandpa::SignedMessage<H, N, AuthoritySignature, AuthorityId>, StoreError>
+where
+	H: Encode,
+	N: Encode,
+{
+	use sp_core::crypto::Public;
+	use sp_application_crypto::AppKey;
+
+	let encoded = localized_payload(round, set_id, &message);
+	let signature = keystore.read()
+		.sign_with(AuthorityId::ID, &public.to_public_crypto_pair(), &encoded[..])
+		.await?
+		.try_into()
+		.map_err(|_| StoreError::Other("Could not convert signature".to_owned()))?;
+
+	Ok(grandpa::SignedMessage {
+		message,
+		signature,
+		id: public,
+	})
+}
+
 /// Checks if this node is a voter in the given voter set.
 ///
 /// Returns the key pair of the node that is being used in the current voter set or `None`.
@@ -1101,8 +1132,8 @@ fn is_voter(
 		Some(keystore) => voters
 			.iter()
 			.find(|(p, _)| {
-				keystore.read()
-					.has_keys(&[(p.to_raw_vec(), AuthorityId::ID)])
+				block_on(keystore.read()
+					.has_keys(&[(p.to_raw_vec(), AuthorityId::ID)]))
 			})
 			.map(|(p, _)| p.clone()),
 		None => None,
@@ -1119,7 +1150,7 @@ fn authority_id<'a, I>(
 	match keystore {
 		Some(keystore) => {
 			authorities
-				.find(|p| keystore.read().has_keys(&[(p.to_raw_vec(), AuthorityId::ID)]))
+				.find(|p| block_on(keystore.read().has_keys(&[(p.to_raw_vec(), AuthorityId::ID)])))
 				.cloned()
 		},
 		None => None,
