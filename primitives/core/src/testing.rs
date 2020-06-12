@@ -242,6 +242,23 @@ impl crate::traits::BareCryptoStore for KeyStore {
 			_ => Err(BareCryptoStoreError::KeyNotSupported(id))
 		}
 	}
+
+	async fn sr25519_vrf_sign<'a>(
+		&'a self,
+		key_type: KeyTypeId,
+		public: &sr25519::Public,
+		transcript_data: VRFTranscriptData<'a>,
+	) -> Result<VRFSignature, Error> {
+		let transcript = make_transcript(transcript_data);
+		let pair = self.sr25519_key_pair(key_type, public)
+			.ok_or(Error::PairNotFound("Not found".to_owned()))?;
+
+		let (inout, proof, _) = pair.as_ref().vrf_sign(transcript);
+		Ok(VRFSignature {
+			output: inout.to_output(),
+			proof,
+		})
+	}
 }
 
 /// Macro for exporting functions from wasm in with the expected signature for using it with the
@@ -403,5 +420,43 @@ mod tests {
 		let public_keys = block_on(store.read().keys(SR25519)).unwrap();
 
 		assert!(public_keys.contains(&key_pair.public().into()));
+	}
+
+	#[test]
+	fn vrf_sign() {
+		let store = KeyStore::new();
+
+		let secret_uri = "//Alice";
+		let key_pair = sr25519::Pair::from_string(secret_uri, None).expect("Generates key pair");
+
+		let transcript_data = VRFTranscriptData {
+			label: b"Test",
+			items: vec![
+				("one", VRFTranscriptValue::U64(1)),
+				("two", VRFTranscriptValue::U64(2)),
+				("three", VRFTranscriptValue::Bytes("test".as_bytes())),
+			]
+		};
+
+		let result = block_on(store.read().sr25519_vrf_sign(
+			SR25519,
+			&key_pair.public(),
+			transcript_data.clone(),
+		));
+		assert!(result.is_err());
+
+		block_on(store.write().insert_unknown(
+			SR25519,
+			secret_uri,
+			key_pair.public().as_ref(),
+		)).expect("Inserts unknown key");
+
+		let result = block_on(store.read().sr25519_vrf_sign(
+			SR25519,
+			&key_pair.public(),
+			transcript_data,
+		));
+
+		assert!(result.is_ok());
 	}
 }

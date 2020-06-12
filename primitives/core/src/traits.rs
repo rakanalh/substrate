@@ -178,6 +178,27 @@ pub trait BareCryptoStore: Send + Sync {
 
 		Ok(join_all(futs).await)
 	}
+
+	/// Generate VRF signature for given transcript data.
+	///
+	/// Receives KeyTypeId and Public key to be able to map
+	/// them to a private key that exists in the keystore which
+	/// is, in turn, used for signing the provided transcript.
+	///
+	/// Returns a result containing the signature data.
+	/// Namely, VRFOutput and VRFProof which are returned
+	/// inside the `VRFSignature` container struct.
+	///
+	/// This function will return an error in the cases where
+	/// the public key and key type provided do not match a private
+	/// key in the keystore. Or, in the context of remote signing
+	/// an error could be a network one.
+	async fn sr25519_vrf_sign<'a>(
+		&'a self,
+		key_type: KeyTypeId,
+		public: &sr25519::Public,
+		transcript_data: VRFTranscriptData<'a>,
+	) -> Result<VRFSignature, Error>;
 }
 
 /// A pointer to the key store.
