@@ -21,7 +21,7 @@ use sp_core::{
 	},
 	traits::{
 		BareCryptoStore,
-		BareCryptoStoreError,
+		Error,
 	},
 };
 pub use sp_externalities::{Externalities, ExternalitiesExt};
@@ -40,7 +40,7 @@ pub struct KeystoreRequest {
 }
 
 pub enum KeystoreResponse {
-	SignWith(Result<Vec<u8>, BareCryptoStoreError>),
+	SignWith(Result<Vec<u8>, Error>),
 	HasKeys(bool),
 	InsertUnknown(Result<(), ()>),
 }

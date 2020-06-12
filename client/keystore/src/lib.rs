@@ -448,8 +448,6 @@ impl BareCryptoStore for Store {
 
 	async fn sr25519_vrf_sign<'a>(
 		&'a self,
-	fn sr25519_vrf_sign(
-		&self,
 		key_type: KeyTypeId,
 		public: &Sr25519Public,
 		transcript_data: VRFTranscriptData<'a>,
