@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Generic Transaction Pool
 //!
 //! The pool is based on dependency graph between transactions
@@ -31,14 +32,13 @@ mod pool;
 mod ready;
 mod rotator;
 mod validated_pool;
+mod tracked_map;
 
 pub mod base_pool;
 pub mod watcher;
 
 pub use self::base_pool::Transaction;
 pub use self::pool::{
-	Pool,
-	Options, ChainApi, EventStream, ExtrinsicFor,
-	BlockHash, ExHash, NumberFor, TransactionFor,
-	ValidatedTransaction,
+	Pool, Options, ChainApi, EventStream, ExtrinsicFor, ExtrinsicHash,
+	BlockHash, NumberFor, TransactionFor, ValidatedTransaction,
 };

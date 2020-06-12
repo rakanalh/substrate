@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use crate::error;
 use crate::params::ImportParams;
 use crate::params::SharedParams;
@@ -28,7 +29,7 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 /// The `import-blocks` command used to import blocks.
-#[derive(Debug, StructOpt, Clone)]
+#[derive(Debug, StructOpt)]
 pub struct ImportBlocksCmd {
 	/// Input file or stdin if unspecified.
 	#[structopt(parse(from_os_str))]
@@ -39,6 +40,10 @@ pub struct ImportBlocksCmd {
 	/// Don't alter this unless you know what you're doing.
 	#[structopt(long = "default-heap-pages", value_name = "COUNT")]
 	pub default_heap_pages: Option<u32>,
+
+	/// Try importing blocks from binary format rather than JSON.
+	#[structopt(long)]
+	pub binary: bool,
 
 	#[allow(missing_docs)]
 	#[structopt(flatten)]
@@ -78,7 +83,7 @@ impl ImportBlocksCmd {
 		};
 
 		builder(config)?
-			.import_blocks(file, false)
+			.import_blocks(file, false, self.binary)
 			.await
 			.map_err(Into::into)
 	}

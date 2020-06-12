@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Substrate RPC implementation.
 //!
 //! A core implementation of Substrate RPC interfaces.
@@ -23,7 +24,7 @@
 
 mod metadata;
 
-pub use sc_rpc_api::{DenyUnsafe, Subscriptions};
+pub use sc_rpc_api::DenyUnsafe;
 pub use self::metadata::Metadata;
 pub use rpc::IoHandlerExtension as RpcExtension;
 

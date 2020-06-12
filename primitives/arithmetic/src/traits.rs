@@ -21,8 +21,8 @@ use sp_std::{self, convert::{TryFrom, TryInto}};
 use codec::HasCompact;
 pub use integer_sqrt::IntegerSquareRoot;
 pub use num_traits::{
-	Zero, One, Bounded, CheckedAdd, CheckedSub, CheckedMul, CheckedDiv,
-	CheckedShl, CheckedShr, checked_pow
+	Zero, One, Bounded, CheckedAdd, CheckedSub, CheckedMul, CheckedDiv, CheckedNeg,
+	CheckedShl, CheckedShr, checked_pow, Signed
 };
 use sp_std::ops::{
 	Add, Sub, Mul, Div, Rem, AddAssign, SubAssign, MulAssign, DivAssign,
@@ -145,7 +145,15 @@ impl<T: Clone + Zero + One + PartialOrd + CheckedMul + Bounded + num_traits::Sat
 	}
 
 	fn saturating_pow(self, exp: usize) -> Self {
-		checked_pow(self, exp).unwrap_or_else(Bounded::max_value)
+		let neg = self < T::zero() && exp % 2 != 0;
+		checked_pow(self, exp)
+			.unwrap_or_else(||
+				if neg {
+					Bounded::min_value()
+				} else {
+					Bounded::max_value()
+				}
+			)
 	}
 }
 

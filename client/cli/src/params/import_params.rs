@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use crate::arg_enums::{
 	ExecutionStrategy, TracingReceiver, WasmExecutionMethod,
 	DEFAULT_EXECUTION_BLOCK_CONSTRUCTION, DEFAULT_EXECUTION_IMPORT_BLOCK,
@@ -26,7 +27,7 @@ use sc_client_api::execution_extensions::ExecutionStrategies;
 use structopt::StructOpt;
 
 /// Parameters for block import.
-#[derive(Debug, StructOpt, Clone)]
+#[derive(Debug, StructOpt)]
 pub struct ImportParams {
 	#[allow(missing_docs)]
 	#[structopt(flatten)]
@@ -129,7 +130,7 @@ impl ImportParams {
 }
 
 /// Execution strategies parameters.
-#[derive(Debug, StructOpt, Clone)]
+#[derive(Debug, StructOpt)]
 pub struct ExecutionStrategiesParams {
 	/// The means of execution used when calling into the runtime while syncing blocks.
 	#[structopt(

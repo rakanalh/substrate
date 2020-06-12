@@ -71,8 +71,8 @@ pub use sp_core::RuntimeDebug;
 
 /// Re-export top-level arithmetic stuff.
 pub use sp_arithmetic::{
-	Perquintill, Perbill, Permill, Percent, PerU16, Rational128, Fixed64, Fixed128,
-	PerThing, traits::SaturatedConversion,
+	PerThing, traits::SaturatedConversion, Perquintill, Perbill, Permill, Percent, PerU16,
+	Rational128, FixedI64, FixedI128, FixedU128, FixedPointNumber, FixedPointOperand,
 };
 /// Re-export 128 bit helpers.
 pub use sp_arithmetic::helpers_128bit;
@@ -80,6 +80,8 @@ pub use sp_arithmetic::helpers_128bit;
 pub use sp_arithmetic::biguint;
 
 pub use random_number_generator::RandomNumberGenerator;
+
+pub use either::Either;
 
 /// An abstraction over justification for a block's validity under a consensus algorithm.
 ///
@@ -535,6 +537,10 @@ pub type DispatchOutcome = Result<(), DispatchError>;
 ///   a transaction in the block doesn't make sense.
 /// - The extrinsic supplied a bad signature. This transaction won't become valid ever.
 pub type ApplyExtrinsicResult = Result<DispatchOutcome, transaction_validity::TransactionValidityError>;
+
+/// Same as `ApplyExtrinsicResult` but augmented with `PostDispatchInfo` on success.
+pub type ApplyExtrinsicResultWithInfo<T> =
+	Result<DispatchResultWithInfo<T>, transaction_validity::TransactionValidityError>;
 
 /// Verify a signature on an encoded value in a lazy manner. This can be
 /// an optimization if the signature scheme has an "unsigned" escape hash.

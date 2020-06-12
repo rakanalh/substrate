@@ -15,11 +15,12 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use sc_service::config::TransactionPoolOptions;
 use structopt::StructOpt;
 
 /// Parameters used to create the pool configuration.
-#[derive(Debug, StructOpt, Clone)]
+#[derive(Debug, StructOpt)]
 pub struct TransactionPoolParams {
 	/// Maximum number of transactions in the transaction pool.
 	#[structopt(long = "pool-limit", value_name = "COUNT", default_value = "8192")]

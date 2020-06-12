@@ -25,6 +25,10 @@ mod backend;
 pub use crate::backend::{Account, Log, Vicinity, Backend};
 
 use sp_std::{vec::Vec, marker::PhantomData};
+#[cfg(feature = "std")]
+use codec::{Encode, Decode};
+#[cfg(feature = "std")]
+use serde::{Serialize, Deserialize};
 use frame_support::{ensure, decl_module, decl_storage, decl_event, decl_error};
 use frame_support::weights::{Weight, DispatchClass, FunctionOf, Pays};
 use frame_support::traits::{Currency, WithdrawReason, ExistenceRequirement, Get};
@@ -137,11 +141,42 @@ pub trait Trait: frame_system::Trait + pallet_timestamp::Trait {
 	}
 }
 
+#[cfg(feature = "std")]
+#[derive(Clone, Eq, PartialEq, Encode, Decode, Debug, Serialize, Deserialize)]
+/// Account definition used for genesis block construction.
+pub struct GenesisAccount {
+	/// Account nonce.
+	pub nonce: U256,
+	/// Account balance.
+	pub balance: U256,
+	/// Full account storage.
+	pub storage: std::collections::BTreeMap<H256, H256>,
+	/// Account code.
+	pub code: Vec<u8>,
+}
+
 decl_storage! {
 	trait Store for Module<T: Trait> as EVM {
-		Accounts get(fn accounts) config(): map hasher(blake2_128_concat) H160 => Account;
-		AccountCodes: map hasher(blake2_128_concat) H160 => Vec<u8>;
+		Accounts get(fn accounts): map hasher(blake2_128_concat) H160 => Account;
+		AccountCodes get(fn account_codes): map hasher(blake2_128_concat) H160 => Vec<u8>;
 		AccountStorages: double_map hasher(blake2_128_concat) H160, hasher(blake2_128_concat) H256 => H256;
+	}
+
+	add_extra_genesis {
+		config(accounts): std::collections::BTreeMap<H160, GenesisAccount>;
+		build(|config: &GenesisConfig| {
+			for (address, account) in &config.accounts {
+				Accounts::insert(address, Account {
+					balance: account.balance,
+					nonce: account.nonce,
+				});
+				AccountCodes::insert(address, &account.code);
+
+				for (index, value) in &account.storage {
+					AccountStorages::insert(address, index, value);
+				}
+			}
+		});
 	}
 }
 
@@ -253,22 +288,19 @@ decl_module! {
 			gas_price: U256,
 			nonce: Option<U256>,
 		) -> DispatchResult {
+			ensure!(gas_price >= T::FeeCalculator::min_gas_price(), Error::<T>::GasPriceTooLow);
+
 			let sender = ensure_signed(origin)?;
 			let source = T::ConvertAccountId::convert_account_id(&sender);
 
-			Self::execute_evm(
+			Self::execute_call(
 				source,
+				target,
+				input,
 				value,
 				gas_limit,
 				gas_price,
 				nonce,
-				|executor| ((), executor.transact_call(
-					source,
-					target,
-					value,
-					input,
-					gas_limit as usize,
-				)),
 			).map_err(Into::into)
 		}
 
@@ -288,25 +320,18 @@ decl_module! {
 			gas_price: U256,
 			nonce: Option<U256>,
 		) -> DispatchResult {
+			ensure!(gas_price >= T::FeeCalculator::min_gas_price(), Error::<T>::GasPriceTooLow);
+
 			let sender = ensure_signed(origin)?;
 			let source = T::ConvertAccountId::convert_account_id(&sender);
 
-			let create_address = Self::execute_evm(
+			let create_address = Self::execute_create(
 				source,
+				init,
 				value,
 				gas_limit,
 				gas_price,
-				nonce,
-				|executor| {
-					(executor.create_address(
-						evm::CreateScheme::Legacy { caller: source },
-					), executor.transact_create(
-						source,
-						value,
-						init,
-						gas_limit as usize,
-					))
-				},
+				nonce
 			)?;
 
 			Module::<T>::deposit_event(Event::<T>::Created(create_address));
@@ -329,27 +354,19 @@ decl_module! {
 			gas_price: U256,
 			nonce: Option<U256>,
 		) -> DispatchResult {
+			ensure!(gas_price >= T::FeeCalculator::min_gas_price(), Error::<T>::GasPriceTooLow);
+
 			let sender = ensure_signed(origin)?;
 			let source = T::ConvertAccountId::convert_account_id(&sender);
 
-			let code_hash = H256::from_slice(Keccak256::digest(&init).as_slice());
-			let create_address = Self::execute_evm(
+			let create_address = Self::execute_create2(
 				source,
+				init,
+				salt,
 				value,
 				gas_limit,
 				gas_price,
-				nonce,
-				|executor| {
-					(executor.create_address(
-						evm::CreateScheme::Create2 { caller: source, code_hash, salt },
-					), executor.transact_create2(
-						source,
-						value,
-						init,
-						salt,
-						gas_limit as usize,
-					))
-				},
+				nonce
 			)?;
 
 			Module::<T>::deposit_event(Event::<T>::Created(create_address));
@@ -391,6 +408,91 @@ impl<T: Trait> Module<T> {
 		AccountStorages::remove_prefix(address);
 	}
 
+	/// Execute a create transaction on behalf of given sender.
+	pub fn execute_create(
+		source: H160,
+		init: Vec<u8>,
+		value: U256,
+		gas_limit: u32,
+		gas_price: U256,
+		nonce: Option<U256>
+	) -> Result<H160, Error<T>> {
+		Self::execute_evm(
+			source,
+			value,
+			gas_limit,
+			gas_price,
+			nonce,
+			|executor| {
+				(executor.create_address(
+					evm::CreateScheme::Legacy { caller: source },
+				), executor.transact_create(
+					source,
+					value,
+					init,
+					gas_limit as usize,
+				))
+			},
+		)
+	}
+
+	/// Execute a create2 transaction on behalf of a given sender.
+	pub fn execute_create2(
+		source: H160,
+		init: Vec<u8>,
+		salt: H256,
+		value: U256,
+		gas_limit: u32,
+		gas_price: U256,
+		nonce: Option<U256>
+	) -> Result<H160, Error<T>> {
+		let code_hash = H256::from_slice(Keccak256::digest(&init).as_slice());
+		Self::execute_evm(
+			source,
+			value,
+			gas_limit,
+			gas_price,
+			nonce,
+			|executor| {
+				(executor.create_address(
+					evm::CreateScheme::Create2 { caller: source, code_hash, salt },
+				), executor.transact_create2(
+					source,
+					value,
+					init,
+					salt,
+					gas_limit as usize,
+				))
+			},
+		)
+	}
+
+	/// Execute a call transaction on behalf of a given sender.
+	pub fn execute_call(
+		source: H160,
+		target: H160,
+		input: Vec<u8>,
+		value: U256,
+		gas_limit: u32,
+		gas_price: U256,
+		nonce: Option<U256>,
+	) -> Result<(), Error<T>> {
+		Self::execute_evm(
+			source,
+			value,
+			gas_limit,
+			gas_price,
+			nonce,
+			|executor| ((), executor.transact_call(
+				source,
+				target,
+				value,
+				input,
+				gas_limit as usize,
+			)),
+		)
+	}
+
 	/// Execute an EVM operation.
 	fn execute_evm<F, R>(
 		source: H160,
@@ -402,8 +504,6 @@ impl<T: Trait> Module<T> {
 	) -> Result<R, Error<T>> where
 		F: FnOnce(&mut StackExecutor<Backend<T>>) -> (R, ExitReason),
 	{
-		ensure!(gas_price >= T::FeeCalculator::min_gas_price(), Error::<T>::GasPriceTooLow);
-
 		let vicinity = Vicinity {
 			gas_price,
 			origin: source,

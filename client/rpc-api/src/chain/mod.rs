@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Substrate blockchain API.
 
 pub mod error;
@@ -48,7 +49,7 @@ pub trait ChainApi<Number, Hash, Header, SignedBlock> {
 	#[rpc(name = "chain_getBlockHash", alias("chain_getHead"))]
 	fn block_hash(
 		&self,
-		hash: Option<ListOrValue<NumberOrHex<Number>>>,
+		hash: Option<ListOrValue<NumberOrHex>>,
 	) -> Result<ListOrValue<Option<Hash>>>;
 
 	/// Get hash of the last finalized block in the canon chain.

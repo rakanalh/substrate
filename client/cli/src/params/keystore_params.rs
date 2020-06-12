@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use crate::error::Result;
 use sc_service::config::KeystoreConfig;
 use std::fs;
@@ -25,7 +26,7 @@ use structopt::StructOpt;
 const DEFAULT_KEYSTORE_CONFIG_PATH: &'static str = "keystore";
 
 /// Parameters of the keystore
-#[derive(Debug, StructOpt, Clone)]
+#[derive(Debug, StructOpt)]
 pub struct KeystoreParams {
 	/// Specify custom keystore path.
 	#[structopt(long = "keystore-path", value_name = "PATH", parse(from_os_str))]

@@ -15,13 +15,15 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use super::*;
 
 use sc_network::{self, PeerId};
 use sc_network::config::Role;
 use substrate_test_runtime_client::runtime::Block;
 use assert_matches::assert_matches;
-use futures::{prelude::*, channel::mpsc};
+use futures::prelude::*;
+use sp_utils::mpsc::tracing_unbounded;
 use std::thread;
 
 struct Status {
@@ -45,7 +47,7 @@ impl Default for Status {
 fn api<T: Into<Option<Status>>>(sync: T) -> System<Block> {
 	let status = sync.into().unwrap_or_default();
 	let should_have_peers = !status.is_dev;
-	let (tx, rx) = mpsc::unbounded();
+	let (tx, rx) = tracing_unbounded("rpc_system_tests");
 	thread::spawn(move || {
 		futures::executor::block_on(rx.for_each(move |request| {
 			match request {

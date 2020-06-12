@@ -15,11 +15,12 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use crate::arg_enums::Database;
 use structopt::StructOpt;
 
 /// Parameters for block import.
-#[derive(Debug, StructOpt, Clone)]
+#[derive(Debug, StructOpt)]
 pub struct DatabaseParams {
 	/// Select database backend to use.
 	#[structopt(

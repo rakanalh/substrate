@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use crate::{
 	CliConfiguration, error, params::{ImportParams, SharedParams, BlockNumberOrHash},
 };
@@ -24,7 +25,7 @@ use std::{fmt::Debug, str::FromStr};
 use structopt::StructOpt;
 
 /// The `check-block` command used to validate blocks.
-#[derive(Debug, StructOpt, Clone)]
+#[derive(Debug, StructOpt)]
 pub struct CheckBlockCmd {
 	/// Block hash or number
 	#[structopt(value_name = "HASH or NUMBER")]

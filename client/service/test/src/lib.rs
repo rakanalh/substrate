@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Service integration test utils.
 
 use std::iter;
@@ -33,7 +34,7 @@ use sc_service::{
 	GenericChainSpec,
 	ChainSpecExtension,
 	Configuration,
-	config::{DatabaseConfig, KeystoreConfig},
+	config::{BasePath, DatabaseConfig, KeystoreConfig},
 	RuntimeGenesis,
 	Role,
 	Error,
@@ -209,6 +210,7 @@ fn node_config<G: RuntimeGenesis + 'static, E: ChainSpecExtension + Clone + 'sta
 		tracing_receiver: Default::default(),
 		max_runtime_instances: 8,
 		announce_block: true,
+		base_path: Some(BasePath::new(root)),
 	}
 }
 
@@ -456,6 +458,7 @@ pub fn sync<G, E, Fb, F, Lb, L, B, ExF, U>(
 
 			make_block_and_import(&first_service.get(), first_user_data);
 		}
+		(network.full_nodes[0].1).0.lock().unwrap().network().update_chain();
 		network.full_nodes[0].3.clone()
 	};
 

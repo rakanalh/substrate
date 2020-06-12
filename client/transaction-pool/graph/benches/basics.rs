@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use criterion::{criterion_group, criterion_main, Criterion};
 
 use futures::{future::{ready, Ready}, executor::block_on};
@@ -50,7 +51,6 @@ fn to_tag(nonce: u64, from: AccountId) -> Tag {
 
 impl ChainApi for TestApi {
 	type Block = Block;
-	type Hash = H256;
 	type Error = sp_transaction_pool::error::Error;
 	type ValidationFuture = Ready<sp_transaction_pool::error::Result<TransactionValidity>>;
 	type BodyFuture = Ready<sp_transaction_pool::error::Result<Option<Vec<Extrinsic>>>>;
@@ -106,7 +106,7 @@ impl ChainApi for TestApi {
 		})
 	}
 
-	fn hash_and_length(&self, uxt: &ExtrinsicFor<Self>) -> (Self::Hash, usize) {
+	fn hash_and_length(&self, uxt: &ExtrinsicFor<Self>) -> (H256, usize) {
 		let encoded = uxt.encode();
 		(blake2_256(&encoded).into(), encoded.len())
 	}

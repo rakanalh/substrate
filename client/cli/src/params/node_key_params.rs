@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use sc_network::config::NodeKeyConfig;
 use sp_core::H256;
 use std::{path::PathBuf, str::FromStr};
@@ -30,7 +31,7 @@ const NODE_KEY_ED25519_FILE: &str = "secret_ed25519";
 
 /// Parameters used to create the `NodeKeyConfig`, which determines the keypair
 /// used for libp2p networking.
-#[derive(Debug, StructOpt, Clone)]
+#[derive(Debug, StructOpt)]
 pub struct NodeKeyParams {
 	/// The secret key to use for libp2p networking.
 	///

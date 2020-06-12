@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Substrate service. Starts a thread that spins up the network, client, and extrinsic pool.
 //! Manages communication between them.
 
@@ -51,11 +52,11 @@ use futures::{
 	sink::SinkExt,
 	task::{Spawn, FutureObj, SpawnError},
 };
-use sc_network::{NetworkService, network_state::NetworkState, PeerId};
+use sc_network::{NetworkService, NetworkStatus, network_state::NetworkState, PeerId};
 use log::{log, warn, debug, error, Level};
 use codec::{Encode, Decode};
 use sp_runtime::generic::BlockId;
-use sp_runtime::traits::{NumberFor, Block as BlockT};
+use sp_runtime::traits::Block as BlockT;
 use parity_util_mem::MallocSizeOf;
 use sp_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver,  TracingUnboundedSender};
 
@@ -63,9 +64,9 @@ pub use self::error::Error;
 pub use self::builder::{
 	new_full_client, new_client,
 	ServiceBuilder, ServiceBuilderCommand, TFullClient, TLightClient, TFullBackend, TLightBackend,
-	TFullCallExecutor, TLightCallExecutor,
+	TFullCallExecutor, TLightCallExecutor, RpcExtensionBuilder,
 };
-pub use config::{Configuration, DatabaseConfig, PruningMode, Role, RpcMethods, TaskType};
+pub use config::{BasePath, Configuration, DatabaseConfig, PruningMode, Role, RpcMethods, TaskType};
 pub use sc_chain_spec::{
 	ChainSpec, GenericChainSpec, Properties, RuntimeGenesis, Extension as ChainSpecExtension,
 	NoExtension, ChainType,
@@ -109,14 +110,14 @@ pub struct Service<TBl, TCl, TSc, TNetStatus, TNet, TTxPool, TOc> {
 	task_manager: TaskManager,
 	select_chain: Option<TSc>,
 	network: Arc<TNet>,
-	/// Sinks to propagate network status updates.
-	/// For each element, every time the `Interval` fires we push an element on the sender.
+	// Sinks to propagate network status updates.
+	// For each element, every time the `Interval` fires we push an element on the sender.
 	network_status_sinks: Arc<Mutex<status_sinks::StatusSinks<(TNetStatus, NetworkState)>>>,
 	transaction_pool: Arc<TTxPool>,
-	/// Send a signal when a spawned essential task has concluded. The next time
-	/// the service future is polled it should complete with an error.
+	// Send a signal when a spawned essential task has concluded. The next time
+	// the service future is polled it should complete with an error.
 	essential_failed_tx: TracingUnboundedSender<()>,
-	/// A receiver for spawned essential-tasks concluding.
+	// A receiver for spawned essential-tasks concluding.
 	essential_failed_rx: TracingUnboundedReceiver<()>,
 	rpc_handlers: sc_rpc_server::RpcHandler<sc_rpc::Metadata>,
 	_rpc: Box<dyn std::any::Any + Send + Sync>,
@@ -126,6 +127,9 @@ pub struct Service<TBl, TCl, TSc, TNetStatus, TNet, TTxPool, TOc> {
 	keystore: Arc<sc_keystore::proxy::KeystoreProxy>,
 	marker: PhantomData<TBl>,
 	prometheus_registry: Option<prometheus_endpoint::Registry>,
+	// The base path is kept here because it can be a temporary directory which will be deleted
+	// when dropped
+	_base_path: Option<Arc<BasePath>>,
 }
 
 impl<TBl, TCl, TSc, TNetStatus, TNet, TTxPool, TOc> Unpin for Service<TBl, TCl, TSc, TNetStatus, TNet, TTxPool, TOc> {}
@@ -209,6 +213,9 @@ pub trait AbstractService: Future<Output = Result<(), Error>> + Send + Unpin + S
 
 	/// Get the prometheus metrics registry, if available.
 	fn prometheus_registry(&self) -> Option<prometheus_endpoint::Registry>;
+
+	/// Get a clone of the base_path
+	fn base_path(&self) -> Option<Arc<BasePath>>;
 }
 
 impl<TBl, TBackend, TExec, TRtApi, TSc, TExPool, TOc> AbstractService for
@@ -243,7 +250,7 @@ where
 	}
 
 	fn telemetry(&self) -> Option<sc_telemetry::Telemetry> {
-		self._telemetry.as_ref().map(|t| t.clone())
+		self._telemetry.clone()
 	}
 
 	fn keystore(&self) -> Arc<sc_keystore::proxy::KeystoreProxy> {
@@ -308,6 +315,10 @@ where
 
 	fn prometheus_registry(&self) -> Option<prometheus_endpoint::Registry> {
 		self.prometheus_registry.clone()
+	}
+
+	fn base_path(&self) -> Option<Arc<BasePath>> {
+		self._base_path.clone()
 	}
 }
 
@@ -486,25 +497,6 @@ fn build_network_future<
 	})
 }
 
-/// Overview status of the network.
-#[derive(Clone)]
-pub struct NetworkStatus<B: BlockT> {
-	/// Current global sync state.
-	pub sync_state: sc_network::SyncState,
-	/// Target sync block number.
-	pub best_seen_block: Option<NumberFor<B>>,
-	/// Number of peers participating in syncing.
-	pub num_sync_peers: u32,
-	/// Total number of connected peers
-	pub num_connected_peers: usize,
-	/// Total number of active peers.
-	pub num_active_peers: usize,
-	/// Downloaded bytes per second averaged over the past few seconds.
-	pub average_download_per_sec: u64,
-	/// Uploaded bytes per second averaged over the past few seconds.
-	pub average_upload_per_sec: u64,
-}
-
 #[cfg(not(target_os = "unknown"))]
 // Wrapper for HTTP and WS servers that makes sure they are properly shut down.
 mod waiting {
@@ -553,8 +545,8 @@ fn start_rpc_servers<H: FnMut(sc_rpc::DenyUnsafe) -> sc_rpc_server::RpcHandler<s
 		})
 	}
 
-	fn deny_unsafe(addr: &Option<SocketAddr>, methods: &RpcMethods) -> sc_rpc::DenyUnsafe {
-		let is_exposed_addr = addr.map(|x| x.ip().is_loopback()).unwrap_or(false);
+	fn deny_unsafe(addr: &SocketAddr, methods: &RpcMethods) -> sc_rpc::DenyUnsafe {
+		let is_exposed_addr = !addr.ip().is_loopback();
 		match (is_exposed_addr, methods) {
 			| (_, RpcMethods::Unsafe)
 			| (false, RpcMethods::Auto) => sc_rpc::DenyUnsafe::No,
@@ -568,7 +560,7 @@ fn start_rpc_servers<H: FnMut(sc_rpc::DenyUnsafe) -> sc_rpc_server::RpcHandler<s
 			|address| sc_rpc_server::start_http(
 				address,
 				config.rpc_cors.as_ref(),
-				gen_handler(deny_unsafe(&config.rpc_http, &config.rpc_methods)),
+				gen_handler(deny_unsafe(&address, &config.rpc_methods)),
 			),
 		)?.map(|s| waiting::HttpServer(Some(s))),
 		maybe_start_server(
@@ -577,7 +569,7 @@ fn start_rpc_servers<H: FnMut(sc_rpc::DenyUnsafe) -> sc_rpc_server::RpcHandler<s
 				address,
 				config.rpc_ws_max_connections,
 				config.rpc_cors.as_ref(),
-				gen_handler(deny_unsafe(&config.rpc_ws, &config.rpc_methods)),
+				gen_handler(deny_unsafe(&address, &config.rpc_methods)),
 			),
 		)?.map(|s| waiting::WsServer(Some(s))),
 	)))

@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use crate::error;
 use crate::params::{DatabaseParams, SharedParams};
 use crate::CliConfiguration;
@@ -25,7 +26,7 @@ use std::io::{self, Write};
 use structopt::StructOpt;
 
 /// The `purge-chain` command used to remove the whole chain.
-#[derive(Debug, StructOpt, Clone)]
+#[derive(Debug, StructOpt)]
 pub struct PurgeChainCmd {
 	/// Skip interactive prompt by answering yes automatically.
 	#[structopt(short = "y")]

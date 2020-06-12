@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 use std::{sync::Arc, collections::HashMap};
 
 use log::{debug, trace};
@@ -668,6 +669,7 @@ where
 					Error::Blockchain(error) => ConsensusError::ClientImport(error),
 					Error::Client(error) => ConsensusError::ClientImport(error.to_string()),
 					Error::Safety(error) => ConsensusError::ClientImport(error),
+					Error::Signing(error) => ConsensusError::ClientImport(error),
 					Error::Timer(error) => ConsensusError::ClientImport(error.to_string()),
 				});
 			},

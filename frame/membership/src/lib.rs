@@ -28,7 +28,7 @@ use frame_support::{
 	decl_module, decl_storage, decl_event, decl_error,
 	traits::{ChangeMembers, InitializeMembers, EnsureOrigin},
 };
-use frame_system::{self as system, ensure_root, ensure_signed};
+use frame_system::{self as system, ensure_signed};
 
 pub trait Trait<I=DefaultInstance>: frame_system::Trait {
 	/// The overarching event type.
@@ -119,10 +119,8 @@ decl_module! {
 		///
 		/// May only be called from `AddOrigin` or root.
 		#[weight = 50_000_000]
-		fn add_member(origin, who: T::AccountId) {
-			T::AddOrigin::try_origin(origin)
-				.map(|_| ())
-				.or_else(ensure_root)?;
+		pub fn add_member(origin, who: T::AccountId) {
+			T::AddOrigin::ensure_origin(origin)?;
 
 			let mut members = <Members<T, I>>::get();
 			let location = members.binary_search(&who).err().ok_or(Error::<T, I>::AlreadyMember)?;
@@ -138,10 +136,8 @@ decl_module! {
 		///
 		/// May only be called from `RemoveOrigin` or root.
 		#[weight = 50_000_000]
-		fn remove_member(origin, who: T::AccountId) {
-			T::RemoveOrigin::try_origin(origin)
-				.map(|_| ())
-				.or_else(ensure_root)?;
+		pub fn remove_member(origin, who: T::AccountId) {
+			T::RemoveOrigin::ensure_origin(origin)?;
 
 			let mut members = <Members<T, I>>::get();
 			let location = members.binary_search(&who).ok().ok_or(Error::<T, I>::NotMember)?;
@@ -160,10 +156,8 @@ decl_module! {
 		///
 		/// Prime membership is *not* passed from `remove` to `add`, if extant.
 		#[weight = 50_000_000]
-		fn swap_member(origin, remove: T::AccountId, add: T::AccountId) {
-			T::SwapOrigin::try_origin(origin)
-				.map(|_| ())
-				.or_else(ensure_root)?;
+		pub fn swap_member(origin, remove: T::AccountId, add: T::AccountId) {
+			T::SwapOrigin::ensure_origin(origin)?;
 
 			if remove == add { return Ok(()) }
 
@@ -189,10 +183,8 @@ decl_module! {
 		///
 		/// May only be called from `ResetOrigin` or root.
 		#[weight = 50_000_000]
-		fn reset_members(origin, members: Vec<T::AccountId>) {
-			T::ResetOrigin::try_origin(origin)
-				.map(|_| ())
-				.or_else(ensure_root)?;
+		pub fn reset_members(origin, members: Vec<T::AccountId>) {
+			T::ResetOrigin::ensure_origin(origin)?;
 
 			let mut members = members;
 			members.sort();
@@ -212,7 +204,7 @@ decl_module! {
 		///
 		/// Prime membership is passed from the origin account to `new`, if extant.
 		#[weight = 50_000_000]
-		fn change_key(origin, new: T::AccountId) {
+		pub fn change_key(origin, new: T::AccountId) {
 			let remove = ensure_signed(origin)?;
 
 			if remove != new {
@@ -240,10 +232,8 @@ decl_module! {
 
 		/// Set the prime member. Must be a current member.
 		#[weight = 50_000_000]
-		fn set_prime(origin, who: T::AccountId) {
-			T::PrimeOrigin::try_origin(origin)
-				.map(|_| ())
-				.or_else(ensure_root)?;
+		pub fn set_prime(origin, who: T::AccountId) {
+			T::PrimeOrigin::ensure_origin(origin)?;
 			Self::members().binary_search(&who).ok().ok_or(Error::<T, I>::NotMember)?;
 			Prime::<T, I>::put(&who);
 			T::MembershipChanged::set_prime(Some(who));
@@ -251,10 +241,8 @@ decl_module! {
 
 		/// Remove the prime member if it exists.
 		#[weight = 50_000_000]
-		fn clear_prime(origin) {
-			T::PrimeOrigin::try_origin(origin)
-				.map(|_| ())
-				.or_else(ensure_root)?;
+		pub fn clear_prime(origin) {
+			T::PrimeOrigin::ensure_origin(origin)?;
 			Prime::<T, I>::kill();
 			T::MembershipChanged::set_prime(None);
 		}
@@ -318,6 +306,7 @@ mod tests {
 		type DbWeight = ();
 		type BlockExecutionWeight = ();
 		type ExtrinsicBaseWeight = ();
+		type MaximumExtrinsicWeight = MaximumBlockWeight;
 		type MaximumBlockLength = MaximumBlockLength;
 		type AvailableBlockRatio = AvailableBlockRatio;
 		type Version = ();

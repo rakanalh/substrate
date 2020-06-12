@@ -376,6 +376,33 @@ impl Hash for BlakeTwo256 {
 	}
 }
 
+/// Keccak-256 Hash implementation.
+#[derive(PartialEq, Eq, Clone, RuntimeDebug)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+pub struct Keccak256;
+
+impl Hasher for Keccak256 {
+	type Out = sp_core::H256;
+	type StdHasher = hash256_std_hasher::Hash256StdHasher;
+	const LENGTH: usize = 32;
+
+	fn hash(s: &[u8]) -> Self::Out {
+		sp_io::hashing::keccak_256(s).into()
+	}
+}
+
+impl Hash for Keccak256 {
+	type Output = sp_core::H256;
+
+	fn trie_root(input: Vec<(Vec<u8>, Vec<u8>)>) -> Self::Output {
+		sp_io::trie::keccak_256_root(input)
+	}
+
+	fn ordered_trie_root(input: Vec<Vec<u8>>) -> Self::Output {
+		sp_io::trie::keccak_256_ordered_root(input)
+	}
+}
+
 /// Something that can be checked for equality and printed out to a debug channel if bad.
 pub trait CheckEqual {
 	/// Perform the equality check.
@@ -892,7 +919,7 @@ pub trait Applyable: Sized + Send + Sync {
 		self,
 		info: &DispatchInfoOf<Self::Call>,
 		len: usize,
-	) -> crate::ApplyExtrinsicResult;
+	) -> crate::ApplyExtrinsicResultWithInfo<PostDispatchInfoOf<Self::Call>>;
 }
 
 /// A marker trait for something that knows the type of the runtime block.
@@ -1130,6 +1157,7 @@ macro_rules! impl_opaque_keys {
 		$( #[ $attr:meta ] )*
 		pub struct $name:ident {
 			$(
+				$( #[ $inner_attr:meta ] )*
 				pub $field:ident: $type:ty,
 			)*
 		}
@@ -1144,6 +1172,7 @@ macro_rules! impl_opaque_keys {
 		#[cfg_attr(feature = "std", derive($crate::serde::Serialize, $crate::serde::Deserialize))]
 		pub struct $name {
 			$(
+				$( #[ $inner_attr ] )*
 				pub $field: <$type as $crate::BoundToRuntimeAppPublic>::Public,
 			)*
 		}

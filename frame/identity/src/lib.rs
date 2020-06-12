@@ -78,7 +78,7 @@ use frame_support::{
 	traits::{Currency, ReservableCurrency, OnUnbalanced, Get, BalanceStatus, EnsureOrigin},
 	weights::Weight,
 };
-use frame_system::{self as system, ensure_signed, ensure_root};
+use frame_system::{self as system, ensure_signed};
 
 mod benchmarking;
 
@@ -389,6 +389,8 @@ pub struct RegistrarInfo<
 decl_storage! {
 	trait Store for Module<T: Trait> as Identity {
 		/// Information that is pertinent to identify the entity behind an account.
+		///
+		/// TWOX-NOTE: OK ― `AccountId` is a secure hash.
 		pub IdentityOf get(fn identity):
 			map hasher(twox_64_concat) T::AccountId => Option<Registration<BalanceOf<T>>>;
 
@@ -400,6 +402,8 @@ decl_storage! {
 		/// Alternative "sub" identities of this account.
 		///
 		/// The first item is the deposit, the second is a vector of the accounts.
+		///
+		/// TWOX-NOTE: OK ― `AccountId` is a secure hash.
 		pub SubsOf get(fn subs_of):
 			map hasher(twox_64_concat) T::AccountId => (BalanceOf<T>, Vec<T::AccountId>);
 
@@ -631,9 +635,7 @@ decl_module! {
 		/// # </weight>
 		#[weight = weight_for::add_registrar::<T>(T::MaxRegistrars::get().into()) ]
 		fn add_registrar(origin, account: T::AccountId) -> DispatchResultWithPostInfo {
-			T::RegistrarOrigin::try_origin(origin)
-				.map(|_| ())
-				.or_else(ensure_root)?;
+			T::RegistrarOrigin::ensure_origin(origin)?;
 
 			let (i, registrar_count) = <Registrars<T>>::try_mutate(
 				|registrars| -> Result<(RegistrarIndex, usize), DispatchError> {
@@ -1104,9 +1106,7 @@ decl_module! {
 			T::MaxAdditionalFields::get().into(), // X
 		)]
 		fn kill_identity(origin, target: <T::Lookup as StaticLookup>::Source) -> DispatchResultWithPostInfo {
-			T::ForceOrigin::try_origin(origin)
-				.map(|_| ())
-				.or_else(ensure_root)?;
+			T::ForceOrigin::ensure_origin(origin)?;
 
 			// Figure out who we're meant to be clearing.
 			let target = T::Lookup::lookup(target)?;
@@ -1189,6 +1189,7 @@ mod tests {
 		type DbWeight = ();
 		type BlockExecutionWeight = ();
 		type ExtrinsicBaseWeight = ();
+		type MaximumExtrinsicWeight = MaximumBlockWeight;
 		type MaximumBlockLength = MaximumBlockLength;
 		type AvailableBlockRatio = AvailableBlockRatio;
 		type Version = ();
@@ -1430,7 +1431,7 @@ mod tests {
 		new_test_ext().execute_with(|| {
 			assert_ok!(Identity::set_identity(Origin::signed(10), ten()));
 			assert_ok!(Identity::set_subs(Origin::signed(10), vec![(20, Data::Raw(vec![40; 1]))]));
-			assert_ok!(Identity::kill_identity(Origin::ROOT, 10));
+			assert_ok!(Identity::kill_identity(Origin::signed(2), 10));
 			assert_eq!(Balances::free_balance(10), 80);
 			assert!(Identity::super_of(20).is_none());
 		});

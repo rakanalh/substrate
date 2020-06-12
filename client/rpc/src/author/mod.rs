@@ -15,6 +15,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 //! Substrate block-author/full-node API.
 
 #[cfg(test)]
@@ -33,7 +34,7 @@ use futures::{StreamExt as _, compat::Compat};
 use futures::future::{ready, BoxFuture, FutureExt, TryFutureExt};
 use sc_rpc_api::{DenyUnsafe, Subscriptions};
 use sc_keystore::proxy::{KeystoreResponse, KeystoreProxy};
-use jsonrpc_pubsub::{typed::Subscriber, SubscriptionId};
+use jsonrpc_pubsub::{typed::Subscriber, SubscriptionId, manager::SubscriptionManager};
 use codec::{Encode, Decode};
 use sp_core::Bytes;
 use sp_api::ProvideRuntimeApi;
@@ -55,7 +56,7 @@ pub struct Author<P, Client> {
 	/// Transactions pool
 	pool: Arc<P>,
 	/// Subscriptions manager
-	subscriptions: Subscriptions,
+	subscriptions: SubscriptionManager,
 	/// The key store.
 	keystore: Arc<KeystoreProxy>,
 	/// Whether to deny unsafe calls
@@ -67,8 +68,8 @@ impl<P, Client> Author<P, Client> {
 	pub fn new(
 		client: Arc<Client>,
 		pool: Arc<P>,
-		subscriptions: Subscriptions,
-		keystore: Arc<KeystoreProxy>,
+		subscriptions: SubscriptionManager,
+		keystore: BareCryptoStorePtr,
 		deny_unsafe: DenyUnsafe,
 	) -> Self {
 		Author {
@@ -80,7 +81,6 @@ impl<P, Client> Author<P, Client> {
 		}
 	}
 }
-
 
 /// Currently we treat all RPC transactions as externals.
 ///

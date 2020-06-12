@@ -47,7 +47,7 @@ use sc_service::client::{LocalCallExecutor, ClientConfig};
 use sc_keystore;
 
 /// Test client light database backend.
-pub type LightBackend<Block> = client::light::backend::Backend<
+pub type LightBackend<Block> = sc_light::Backend<
 	sc_client_db::light::LightStorage<Block>,
 	BlakeTwo256,
 >;
