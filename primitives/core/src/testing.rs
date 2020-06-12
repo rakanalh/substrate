@@ -22,7 +22,8 @@ use crate::crypto::KeyTypeId;
 use crate::{
 	crypto::{Pair, Public, CryptoTypePublicPair},
 	ed25519, sr25519, ecdsa,
-	traits::BareCryptoStoreError
+	traits::Error,
+	vrf::{VRFTranscriptData, VRFSignature, make_transcript},
 };
 #[cfg(feature = "std")]
 use std::collections::HashSet;
@@ -80,7 +81,7 @@ impl KeyStore {
 #[cfg(feature = "std")]
 #[async_trait]
 impl crate::traits::BareCryptoStore for KeyStore {
-	async fn keys(&self, id: KeyTypeId) -> Result<Vec<CryptoTypePublicPair>, BareCryptoStoreError> {
+	async fn keys(&self, id: KeyTypeId) -> Result<Vec<CryptoTypePublicPair>, Error> {
 		self.keys
 			.get(&id)
 			.map(|map| {
@@ -110,11 +111,11 @@ impl crate::traits::BareCryptoStore for KeyStore {
 		&mut self,
 		id: KeyTypeId,
 		seed: Option<&str>,
-	) -> Result<sr25519::Public, BareCryptoStoreError> {
+	) -> Result<sr25519::Public, Error> {
 		match seed {
 			Some(seed) => {
 				let pair = sr25519::Pair::from_string(seed, None)
-					.map_err(|_| BareCryptoStoreError::ValidationError("Generates an `sr25519` pair.".to_owned()))?;
+					.map_err(|_| Error::ValidationError("Generates an `sr25519` pair.".to_owned()))?;
 				self.keys.entry(id).or_default().insert(pair.public().to_raw_vec(), seed.into());
 				Ok(pair.public())
 			},
@@ -141,11 +142,11 @@ impl crate::traits::BareCryptoStore for KeyStore {
 		&mut self,
 		id: KeyTypeId,
 		seed: Option<&str>,
-	) -> Result<ed25519::Public, BareCryptoStoreError> {
+	) -> Result<ed25519::Public, Error> {
 		match seed {
 			Some(seed) => {
 				let pair = ed25519::Pair::from_string(seed, None)
-					.map_err(|_| BareCryptoStoreError::ValidationError("Generates an `ed25519` pair.".to_owned()))?;
+					.map_err(|_| Error::ValidationError("Generates an `ed25519` pair.".to_owned()))?;
 				self.keys.entry(id).or_default().insert(pair.public().to_raw_vec(), seed.into());
 				Ok(pair.public())
 			},
@@ -172,11 +173,11 @@ impl crate::traits::BareCryptoStore for KeyStore {
 		&mut self,
 		id: KeyTypeId,
 		seed: Option<&str>,
-	) -> Result<ecdsa::Public, BareCryptoStoreError> {
+	) -> Result<ecdsa::Public, Error> {
 		match seed {
 			Some(seed) => {
 				let pair = ecdsa::Pair::from_string(seed, None)
-					.map_err(|_| BareCryptoStoreError::ValidationError("Generates an `ecdsa` pair.".to_owned()))?;
+					.map_err(|_| Error::ValidationError("Generates an `ecdsa` pair.".to_owned()))?;
 				self.keys.entry(id).or_default().insert(pair.public().to_raw_vec(), seed.into());
 				Ok(pair.public())
 			},
@@ -205,7 +206,7 @@ impl crate::traits::BareCryptoStore for KeyStore {
 		&self,
 		id: KeyTypeId,
 		keys: Vec<CryptoTypePublicPair>,
-	) -> std::result::Result<Vec<CryptoTypePublicPair>, BareCryptoStoreError> {
+	) -> std::result::Result<Vec<CryptoTypePublicPair>, Error> {
 		let provided_keys = keys.into_iter().collect::<HashSet<_>>();
 		let all_keys = self.keys(id).await?.into_iter().collect::<HashSet<_>>();
 
@@ -217,29 +218,29 @@ impl crate::traits::BareCryptoStore for KeyStore {
 		id: KeyTypeId,
 		key: &CryptoTypePublicPair,
 		msg: &[u8],
-	) -> Result<Vec<u8>, BareCryptoStoreError> {
+	) -> Result<Vec<u8>, Error> {
 		use codec::Encode;
 
 		match key.0 {
 			ed25519::CRYPTO_ID => {
 				let key_pair: ed25519::Pair = self
 					.ed25519_key_pair(id, &ed25519::Public::from_slice(key.1.as_slice()))
-					.ok_or(BareCryptoStoreError::PairNotFound("ed25519".to_owned()))?;
+					.ok_or(Error::PairNotFound("ed25519".to_owned()))?;
 				return Ok(key_pair.sign(msg).encode());
 			}
 			sr25519::CRYPTO_ID => {
 				let key_pair: sr25519::Pair = self
 					.sr25519_key_pair(id, &sr25519::Public::from_slice(key.1.as_slice()))
-					.ok_or(BareCryptoStoreError::PairNotFound("sr25519".to_owned()))?;
+					.ok_or(Error::PairNotFound("sr25519".to_owned()))?;
 				return Ok(key_pair.sign(msg).encode());
 			}
 			ecdsa::CRYPTO_ID => {
 				let key_pair: ecdsa::Pair = self
 					.ecdsa_key_pair(id, &ecdsa::Public::from_slice(key.1.as_slice()))
-					.ok_or(BareCryptoStoreError::PairNotFound("ecdsa".to_owned()))?;
+					.ok_or(Error::PairNotFound("ecdsa".to_owned()))?;
 				return Ok(key_pair.sign(msg).encode());
 			}
-			_ => Err(BareCryptoStoreError::KeyNotSupported(id))
+			_ => Err(Error::KeyNotSupported(id))
 		}
 	}
 
@@ -391,6 +392,7 @@ mod tests {
 	use crate::sr25519;
 	use crate::testing::{ED25519, SR25519};
 	use futures::executor::block_on;
+	use crate::vrf::VRFTranscriptValue;
 
 	#[test]
 	fn store_key_and_extract() {

@@ -21,9 +21,9 @@ use futures::future::join_all;
 
 use crate::{
 	crypto::{KeyTypeId, CryptoTypePublicPair},
+	vrf::{VRFTranscriptData, VRFSignature},
 	ed25519, sr25519, ecdsa,
 };
-
 use std::{
 	borrow::Cow,
 	fmt::{Debug, Display},
@@ -35,7 +35,7 @@ pub use sp_externalities::{Externalities, ExternalitiesExt};
 
 /// BareCryptoStore error
 #[derive(Debug, derive_more::Display)]
-pub enum BareCryptoStoreError {
+pub enum Error {
 	/// Public key type is not supported
 	#[display(fmt="Key not supported: {:?}", _0)]
 	KeyNotSupported(KeyTypeId),
@@ -67,7 +67,7 @@ pub trait BareCryptoStore: Send + Sync {
 		&mut self,
 		id: KeyTypeId,
 		seed: Option<&str>,
-	) -> Result<sr25519::Public, BareCryptoStoreError>;
+	) -> Result<sr25519::Public, Error>;
 	/// Returns all ed25519 public keys for the given key type.
 	async fn ed25519_public_keys(&self, id: KeyTypeId) -> Vec<ed25519::Public>;
 	/// Generate a new ed25519 key pair for the given key type and an optional seed.
@@ -79,7 +79,7 @@ pub trait BareCryptoStore: Send + Sync {
 		&mut self,
 		id: KeyTypeId,
 		seed: Option<&str>,
-	) -> Result<ed25519::Public, BareCryptoStoreError>;
+	) -> Result<ed25519::Public, Error>;
 	/// Returns all ecdsa public keys for the given key type.
 	async fn ecdsa_public_keys(&self, id: KeyTypeId) -> Vec<ecdsa::Public>;
 	/// Generate a new ecdsa key pair for the given key type and an optional seed.
@@ -91,7 +91,7 @@ pub trait BareCryptoStore: Send + Sync {
 		&mut self,
 		id: KeyTypeId,
 		seed: Option<&str>,
-	) -> Result<ecdsa::Public, BareCryptoStoreError>;
+	) -> Result<ecdsa::Public, Error>;
 
 	/// Insert a new key. This doesn't require any known of the crypto; but a public key must be
 	/// manually provided.
@@ -111,11 +111,11 @@ pub trait BareCryptoStore: Send + Sync {
 		&self,
 		id: KeyTypeId,
 		keys: Vec<CryptoTypePublicPair>
-	) -> Result<Vec<CryptoTypePublicPair>, BareCryptoStoreError>;
+	) -> Result<Vec<CryptoTypePublicPair>, Error>;
 	/// List all supported keys
 	///
 	/// Returns a set of public keys the signer supports.
-	async fn keys(&self, id: KeyTypeId) -> Result<Vec<CryptoTypePublicPair>, BareCryptoStoreError>;
+	async fn keys(&self, id: KeyTypeId) -> Result<Vec<CryptoTypePublicPair>, Error>;
 
 	/// Checks if the private keys for the given public key and key type combinations exist.
 	///
@@ -134,7 +134,7 @@ pub trait BareCryptoStore: Send + Sync {
 		id: KeyTypeId,
 		key: &CryptoTypePublicPair,
 		msg: &[u8],
-	) -> Result<Vec<u8>, BareCryptoStoreError>;
+	) -> Result<Vec<u8>, Error>;
 
 	/// Sign with any key
 	///
@@ -147,7 +147,7 @@ pub trait BareCryptoStore: Send + Sync {
 		id: KeyTypeId,
 		keys: Vec<CryptoTypePublicPair>,
 		msg: &[u8]
-	) -> Result<(CryptoTypePublicPair, Vec<u8>), BareCryptoStoreError> {
+	) -> Result<(CryptoTypePublicPair, Vec<u8>), Error> {
 		if keys.len() == 1 {
 			return self.sign_with(id, &keys[0], msg).await.map(|s| (keys[0].clone(), s));
 		} else {
@@ -157,7 +157,7 @@ pub trait BareCryptoStore: Send + Sync {
 				}
 			}
 		}
-		Err(BareCryptoStoreError::KeyNotSupported(id))
+		Err(Error::KeyNotSupported(id))
 	}
 
 	/// Sign with all keys
@@ -166,13 +166,13 @@ pub trait BareCryptoStore: Send + Sync {
 	/// each key given that the key is supported.
 	///
 	/// Returns a list of `Result`s each representing the SCALE encoded
-	/// signature of each key or a BareCryptoStoreError for non-supported keys.
+	/// signature of each key or a Error for non-supported keys.
 	async fn sign_with_all(
 		&self,
 		id: KeyTypeId,
 		keys: Vec<CryptoTypePublicPair>,
 		msg: &[u8],
-	) -> Result<Vec<Result<Vec<u8>, BareCryptoStoreError>>, ()> {
+	) -> Result<Vec<Result<Vec<u8>, Error>>, ()> {
 		let futs = keys.iter()
 			.map(|k| self.sign_with(id, k, msg));
 
