@@ -3379,6 +3379,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "futures 0.3.4",
  "node-primitives",
  "node-runtime",
  "node-testing",
