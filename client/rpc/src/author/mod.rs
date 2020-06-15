@@ -32,7 +32,7 @@ use rpc::futures::{
 };
 use futures::{StreamExt as _, compat::Compat};
 use futures::future::{ready, BoxFuture, FutureExt, TryFutureExt};
-use sc_rpc_api::{DenyUnsafe, Subscriptions};
+use sc_rpc_api::DenyUnsafe;
 use sc_keystore::proxy::{KeystoreResponse, KeystoreProxy};
 use jsonrpc_pubsub::{typed::Subscriber, SubscriptionId, manager::SubscriptionManager};
 use codec::{Encode, Decode};
@@ -69,7 +69,7 @@ impl<P, Client> Author<P, Client> {
 		client: Arc<Client>,
 		pool: Arc<P>,
 		subscriptions: SubscriptionManager,
-		keystore: BareCryptoStorePtr,
+		keystore: Arc<KeystoreProxy>,
 		deny_unsafe: DenyUnsafe,
 	) -> Self {
 		Author {

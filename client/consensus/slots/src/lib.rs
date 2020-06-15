@@ -29,8 +29,9 @@ pub use slots::{SignedDuration, SlotInfo};
 use slots::Slots;
 pub use aux_schema::{check_equivocation, MAX_SLOT_CAPACITY, PRUNING_BOUND};
 
+use async_trait::async_trait;
 use codec::{Decode, Encode};
-use sp_consensus::{BlockImport, Proposer, SyncOracle, SelectChain, CanAuthorWith, SlotData, RecordProof};
+use sp_consensus::{BlockImport, Proposer, Proposal, SyncOracle, SelectChain, CanAuthorWith, SlotData, RecordProof};
 use futures::{prelude::*, future::{self, Either}};
 use futures_timer::Delay;
 use sp_inherents::{InherentData, InherentDataProviders};
@@ -38,7 +39,7 @@ use log::{debug, error, info, warn};
 use sp_runtime::generic::BlockId;
 use sp_runtime::traits::{Block as BlockT, Header, HashFor, NumberFor};
 use sp_api::{ProvideRuntimeApi, ApiRef};
-use std::{fmt::Debug, ops::Deref, pin::Pin, sync::Arc, time::{Instant, Duration}};
+use std::{fmt::Debug, ops::Deref, sync::Arc, time::{Instant, Duration}};
 use sc_telemetry::{telemetry, CONSENSUS_DEBUG, CONSENSUS_WARN, CONSENSUS_INFO};
 use parking_lot::Mutex;
 
@@ -49,18 +50,16 @@ pub type StorageChanges<Transaction, Block> =
 	sp_state_machine::StorageChanges<Transaction, HashFor<Block>, NumberFor<Block>>;
 
 /// A worker that should be invoked at every new slot.
+#[async_trait]
 pub trait SlotWorker<B: BlockT> {
-	/// The type of the future that will be returned when a new slot is
-	/// triggered.
-	type OnSlot: Future<Output = Result<(), sp_consensus::Error>>;
-
 	/// Called when a new slot is triggered.
-	fn on_slot(&mut self, chain_head: B::Header, slot_info: SlotInfo) -> Self::OnSlot;
+	async fn on_slot(&mut self, chain_head: B::Header, slot_info: SlotInfo) -> Result<(), sp_consensus::Error>;
 }
 
 /// A skeleton implementation for `SlotWorker` which tries to claim a slot at
 /// its beginning and tries to produce a block if successfully claimed, timing
 /// out if block production takes too long.
+#[async_trait]
 pub trait SimpleSlotWorker<B: BlockT> {
 	/// A handle to a `BlockImport`.
 	type BlockImport: BlockImport<B, Transaction = <Self::Proposer as Proposer<B>>::Transaction>
@@ -155,8 +154,8 @@ pub trait SimpleSlotWorker<B: BlockT> {
 	}
 
 	/// Implements the `on_slot` functionality from `SlotWorker`.
-	fn on_slot(&mut self, chain_head: B::Header, slot_info: SlotInfo)
-		-> Pin<Box<dyn Future<Output = Result<(), sp_consensus::Error>> + Send>> where
+	async fn on_slot(&mut self, chain_head: B::Header, slot_info: SlotInfo)
+		-> Result<(), sp_consensus::Error> where
 		Self: Send + Sync,
 		<Self::Proposer as Proposer<B>>::Proposal: Unpin + Send + 'static,
 	{
@@ -267,56 +266,10 @@ pub trait SimpleSlotWorker<B: BlockT> {
 				},
 			}));
 
-		let block_import_params_maker = self.block_import_params();
-		let block_import = self.block_import();
-		let logging_target = self.logging_target();
 
-		Box::pin(proposal_work.and_then(move |(proposal, claim)| {
-			let (header, body) = proposal.block.deconstruct();
-			let header_num = *header.number();
-			let header_hash = header.hash();
-			let parent_hash = *header.parent_hash();
-
-			let block_import_params = block_import_params_maker(
-				header,
-				&header_hash,
-				body,
-				proposal.storage_changes,
-				claim,
-				epoch_data,
-			);
-
-			let block_import_params = match block_import_params {
-				Ok(params) => params,
-				Err(e) => return future::err(e),
-			};
-
-			info!(
-				"🔖 Pre-sealed block for proposal at {}. Hash now {:?}, previously {:?}.",
-				header_num,
-				block_import_params.post_hash(),
-				header_hash,
-			);
-
-			telemetry!(CONSENSUS_INFO; "slots.pre_sealed_block";
-				"header_num" => ?header_num,
-				"hash_now" => ?block_import_params.post_hash(),
-				"hash_previously" => ?header_hash,
-			);
-
-			if let Err(err) = block_import.lock().import_block(block_import_params, Default::default()) {
-				warn!(target: logging_target,
-					"Error with block built on {:?}: {:?}",
-					parent_hash,
-					err,
-				);
-
-				telemetry!(CONSENSUS_WARN; "slots.err_with_block_built_on";
-					"hash" => ?parent_hash, "err" => ?err,
-				);
-			}
-			future::ready(Ok(()))
-		}))
+		Box::pin(proposal_work.and_then(
+			// make_block_import_params(worker, epoch_data, proposal, claim)
+		));
 	}
 }
 
@@ -349,8 +302,7 @@ pub fn start_slot_worker<B, C, W, T, SO, SC, CAW>(
 where
 	B: BlockT,
 	C: SelectChain<B>,
-	W: SlotWorker<B>,
-	W::OnSlot: Unpin,
+	W: SlotWorker<B> + 'static,
 	SO: SyncOracle + Send,
 	SC: SlotCompatible + Unpin,
 	T: SlotData + Clone,
@@ -539,6 +491,68 @@ pub fn slot_lenience_linear(parent_slot: u64, slot_info: &SlotInfo) -> Option<Du
 		let slot_lenience = std::cmp::min(skipped_slots, BACKOFF_CAP);
 		Some(Duration::from_millis(slot_lenience * slot_info.duration))
 	}
+}
+
+/// Something something
+async fn make_block_import_params<P, C, B, E> (
+	worker: impl SimpleSlotWorker<B, Proposer = P, Claim = C, EpochData = E>,
+	epoch_data: E,
+	proposal: Proposal<B, <P as Proposer<B>>::Transaction>,
+	claim: C,
+) -> Result<(), sp_consensus::Error>
+where
+	C: Send + 'static,
+	E: Send + 'static,
+	B: BlockT,
+	P: Proposer<B>,
+{
+	let block_import_params_maker = worker.block_import_params();
+	let block_import = worker.block_import();
+	let logging_target = worker.logging_target();
+	let (header, body) = proposal.block.deconstruct();
+	let header_num = *header.number();
+	let header_hash = header.hash();
+	let parent_hash = *header.parent_hash();
+
+	let block_import_params = block_import_params_maker(
+		header,
+		&header_hash,
+		body,
+		proposal.storage_changes,
+		claim,
+		epoch_data,
+	).await;
+
+	let block_import_params = match block_import_params {
+		Ok(params) => params,
+		Err(e) => return future::err(e),
+	};
+
+	info!(
+		"🔖 Pre-sealed block for proposal at {}. Hash now {:?}, previously {:?}.",
+		header_num,
+		block_import_params.post_hash(),
+		header_hash,
+	);
+
+	telemetry!(CONSENSUS_INFO; "slots.pre_sealed_block";
+		"header_num" => ?header_num,
+		"hash_now" => ?block_import_params.post_hash(),
+		"hash_previously" => ?header_hash,
+	);
+
+	if let Err(err) = block_import.lock().import_block(block_import_params, Default::default()) {
+		warn!(target: logging_target,
+			"Error with block built on {:?}: {:?}",
+			parent_hash,
+			err,
+		);
+
+		telemetry!(CONSENSUS_WARN; "slots.err_with_block_built_on";
+			"hash" => ?parent_hash, "err" => ?err,
+		);
+	}
+	future::ready(Ok(()))
 }
 
 #[cfg(test)]

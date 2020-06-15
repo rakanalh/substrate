@@ -48,6 +48,9 @@ pub enum Error {
 	#[display(fmt="Unable to create block proposal.")]
 	CannotPropose,
 	/// Error checking signature
+	#[display(fmt="Keystore did not response properly.")]
+	KeystoreResponseInvalid,
+	/// Error checking signature
 	#[display(fmt="Message signature {:?} by {:?} is invalid.", _0, _1)]
 	InvalidSignature(Vec<u8>, Vec<u8>),
 	/// Invalid authorities set received from the runtime.
