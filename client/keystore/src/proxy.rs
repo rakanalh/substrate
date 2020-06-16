@@ -15,6 +15,7 @@ use std::{
 	task::{Context, Poll}
 };
 use sp_core::{
+	sr25519,
 	crypto::{
 		CryptoTypePublicPair,
 		KeyTypeId,
@@ -23,6 +24,7 @@ use sp_core::{
 		BareCryptoStore,
 		Error,
 	},
+	vrf::{VRFTranscriptData, VRFSignature},
 };
 pub use sp_externalities::{Externalities, ExternalitiesExt};
 
@@ -32,6 +34,7 @@ pub enum RequestMethod {
 	SignWith(KeyTypeId, CryptoTypePublicPair, Vec<u8>),
 	HasKeys(Vec<(Vec<u8>, KeyTypeId)>),
 	InsertUnknown(KeyTypeId, String, Vec<u8>),
+	SR25519VrfSign(KeyTypeId, sr25519::Public, VRFTranscriptData),
 }
 
 pub struct KeystoreRequest {
@@ -43,6 +46,7 @@ pub enum KeystoreResponse {
 	SignWith(Result<Vec<u8>, Error>),
 	HasKeys(bool),
 	InsertUnknown(Result<(), ()>),
+	SR25519VrfSign(Result<VRFSignature, Error>)
 }
 
 pub struct KeystoreProxy {
@@ -101,6 +105,19 @@ impl KeystoreProxy {
 			public.to_vec(),
 		)).await
 	}
+
+	pub async fn sr25519_vrf_sign(
+		&self,
+		key_type: KeyTypeId,
+		public: &sr25519::Public,
+		transcript_data: VRFTranscriptData,
+	) -> Result<KeystoreResponse, oneshot::Canceled> {
+		self.send_request(RequestMethod::SR25519VrfSign(
+			key_type,
+			*public,
+			transcript_data,
+		)).await
+	}
 }
 
 enum State<Store: BareCryptoStore> {
@@ -152,6 +169,18 @@ impl<Store: BareCryptoStore + 'static> KeystoreReceiver<Store> {
 						&pubkey,
 					).await;
 					let _ = sender.send(KeystoreResponse::InsertUnknown(result));
+					return store;
+				})
+			},
+			RequestMethod::SR25519VrfSign(key_type, pubkey, transcript_data) => {
+				Box::pin(async move {
+					let store = store;
+					let result = store.sr25519_vrf_sign(
+						key_type,
+						&pubkey,
+						transcript_data,
+					).await;
+					let _ = sender.send(KeystoreResponse::SR25519VrfSign(result));
 					return store;
 				})
 			}
