@@ -32,7 +32,7 @@ pub use aux_schema::{check_equivocation, MAX_SLOT_CAPACITY, PRUNING_BOUND};
 use async_trait::async_trait;
 use codec::{Decode, Encode};
 use sp_consensus::{BlockImport, Proposer, Proposal, SyncOracle, SelectChain, CanAuthorWith, SlotData, RecordProof};
-use futures::{prelude::*, future::{self, Either}};
+use futures::{prelude::*, future};
 use futures_timer::Delay;
 use sp_inherents::{InherentData, InherentDataProviders};
 use log::{debug, error, info, warn};
@@ -79,7 +79,7 @@ pub trait SimpleSlotWorker<B: BlockT> {
 	type Claim: Send + 'static;
 
 	/// Epoch data necessary for authoring.
-	type EpochData: Send + 'static;
+	type EpochData: Send + Sync + 'static;
 
 	/// The logging target to use when logging messages.
 	fn logging_target(&self) -> &'static str;
@@ -89,14 +89,14 @@ pub trait SimpleSlotWorker<B: BlockT> {
 
 	/// Returns the epoch data necessary for authoring. For time-dependent epochs,
 	/// use the provided slot number as a canonical source of time.
-	fn epoch_data(&self, header: &B::Header, slot_number: u64) -> Result<Self::EpochData, sp_consensus::Error>;
+	async fn epoch_data(&self, header: &B::Header, slot_number: u64) -> Result<Self::EpochData, sp_consensus::Error>;
 
 	/// Returns the number of authorities given the epoch data.
 	/// None indicate that the authorities information is incomplete.
-	fn authorities_len(&self, epoch_data: &Self::EpochData) -> Option<usize>;
+	async fn authorities_len(&self, epoch_data: &Self::EpochData) -> Option<usize>;
 
 	/// Tries to claim the given slot, returning an object with claim data if successful.
-	fn claim_slot(
+	async fn claim_slot(
 		&self,
 		header: &B::Header,
 		slot_number: u64,
@@ -111,19 +111,18 @@ pub trait SimpleSlotWorker<B: BlockT> {
 	) -> Vec<sp_runtime::DigestItem<B::Hash>>;
 
 	/// Returns a function which produces a `BlockImportParams`.
-	fn block_import_params(&self) -> Box<
-		dyn Fn(
-			B::Header,
-			&B::Hash,
-			Vec<B::Extrinsic>,
-			StorageChanges<<Self::BlockImport as BlockImport<B>>::Transaction, B>,
-			Self::Claim,
-			Self::EpochData,
-		) -> Result<
-				sp_consensus::BlockImportParams<B, <Self::BlockImport as BlockImport<B>>::Transaction>,
-				sp_consensus::Error
-			> + Send + 'static
-	>;
+	async fn block_import_params(
+		&self,
+		header: B::Header,
+		header_hash: &B::Hash,
+		body: Vec<B::Extrinsic>,
+		storage_changes: StorageChanges<<Self::BlockImport as BlockImport<B>>::Transaction, B>,
+		claim: Self::Claim,
+		epoch_descriptor: Self::EpochData,
+	) -> Result<
+			sp_consensus::BlockImportParams<B, <Self::BlockImport as BlockImport<B>>::Transaction>,
+			sp_consensus::Error,
+			>;
 
 	/// Whether to force authoring if offline.
 	fn force_authoring(&self) -> bool;
@@ -171,11 +170,11 @@ pub trait SimpleSlotWorker<B: BlockT> {
 					slot_number, slot_now,
 				);
 
-				return Box::pin(future::ready(Ok(())));
+				return Ok(());
 			}
 		}
 
-		let epoch_data = match self.epoch_data(&chain_head, slot_number) {
+		let epoch_data = match self.epoch_data(&chain_head, slot_number).await {
 			Ok(epoch_data) => epoch_data,
 			Err(err) => {
 				warn!("Unable to fetch epoch data at block {:?}: {:?}", chain_head.hash(), err);
@@ -186,11 +185,11 @@ pub trait SimpleSlotWorker<B: BlockT> {
 					"err" => ?err,
 				);
 
-				return Box::pin(future::ready(Ok(())));
+				return Ok(());
 			}
 		};
 
-		let authorities_len = self.authorities_len(&epoch_data);
+		let authorities_len = self.authorities_len(&epoch_data).await;
 
 		if !self.force_authoring() &&
 			self.sync_oracle().is_offline() &&
@@ -203,11 +202,11 @@ pub trait SimpleSlotWorker<B: BlockT> {
 				"authorities_len" => authorities_len,
 			);
 
-			return Box::pin(future::ready(Ok(())));
+			return Ok(());
 		}
 
-		let claim = match self.claim_slot(&chain_head, slot_number, &epoch_data) {
-			None => return Box::pin(future::ready(Ok(()))),
+		let claim = match self.claim_slot(&chain_head, slot_number, &epoch_data).await {
+			None => return Ok(()),
 			Some(claim) => claim,
 		};
 
@@ -266,10 +265,59 @@ pub trait SimpleSlotWorker<B: BlockT> {
 				},
 			}));
 
+		let (proposal, claim) = proposal_work.await?;
+		self.import_block(epoch_data, proposal, claim).await
+	}
 
-		Box::pin(proposal_work.and_then(
-			// make_block_import_params(worker, epoch_data, proposal, claim)
-		));
+	/// Something something
+	async fn import_block(
+		&self,
+		epoch_data: Self::EpochData,
+		proposal: Proposal<B, <Self::BlockImport as BlockImport<B>>::Transaction>,
+		claim: Self::Claim,
+	) -> Result<(), sp_consensus::Error>
+	{
+		let block_import = self.block_import();
+		let logging_target = self.logging_target();
+		let (header, body) = proposal.block.deconstruct();
+		let header_num = *header.number();
+		let header_hash = header.hash();
+		let parent_hash = *header.parent_hash();
+
+		let block_import_params = self.block_import_params(
+			header,
+			&header_hash,
+			body,
+			proposal.storage_changes,
+			claim,
+			epoch_data,
+		).await?;
+
+		info!(
+			"🔖 Pre-sealed block for proposal at {}. Hash now {:?}, previously {:?}.",
+			header_num,
+			block_import_params.post_hash(),
+			header_hash,
+		);
+
+		telemetry!(CONSENSUS_INFO; "slots.pre_sealed_block";
+			"header_num" => ?header_num,
+			"hash_now" => ?block_import_params.post_hash(),
+			"hash_previously" => ?header_hash,
+		);
+
+		if let Err(err) = block_import.lock().import_block(block_import_params, Default::default()) {
+			warn!(target: logging_target,
+				"Error with block built on {:?}: {:?}",
+				parent_hash,
+				err,
+			);
+
+			telemetry!(CONSENSUS_WARN; "slots.err_with_block_built_on";
+				"hash" => ?parent_hash, "err" => ?err,
+			);
+		}
+		Ok(())
 	}
 }
 
@@ -311,16 +359,18 @@ where
 	let SlotDuration(slot_duration) = slot_duration;
 
 	// rather than use a timer interval, we schedule our waits ourselves
-	Slots::<SC>::new(
+	let mut slots_stream = Slots::<SC>::new(
 		slot_duration.slot_duration(),
 		inherent_data_providers,
 		timestamp_extractor,
-	).inspect_err(|e| debug!(target: "slots", "Faulty timer: {:?}", e))
-		.try_for_each(move |slot_info| {
+	).inspect_err(|e| debug!(target: "slots", "Faulty timer: {:?}", e));
+
+	async move {
+		while let Some(Ok(slot_info)) = slots_stream.next().await {
 			// only propose when we are not syncing.
 			if sync_oracle.is_major_syncing() {
 				debug!(target: "slots", "Skipping proposal slot due to sync.");
-				return Either::Right(future::ready(Ok(())));
+				return;
 			}
 
 			let slot_num = slot_info.number;
@@ -329,7 +379,7 @@ where
 				Err(e) => {
 					warn!(target: "slots", "Unable to author block in slot {}. \
 					no best block header: {:?}", slot_num, e);
-					return Either::Right(future::ready(Ok(())));
+					return;
 				}
 			};
 
@@ -341,22 +391,13 @@ where
 					slot_num,
 					err,
 				);
-				Either::Right(future::ready(Ok(())))
 			} else {
-				Either::Left(
-					worker.on_slot(chain_head, slot_info)
-						.map_err(|e| {
-							warn!(target: "slots", "Encountered consensus error: {:?}", e);
-						})
-						.or_else(|_| future::ready(Ok(())))
-				)
+				if let Err(e) = worker.on_slot(chain_head, slot_info).await {
+					warn!(target: "slots", "Encountered consensus error: {:?}", e);
+				}
 			}
-		}).then(|res| {
-			if let Err(err) = res {
-				warn!(target: "slots", "Slots stream terminated with an error: {:?}", err);
-			}
-			future::ready(())
-		})
+		}
+	}
 }
 
 /// A header which has been checked
@@ -491,68 +532,6 @@ pub fn slot_lenience_linear(parent_slot: u64, slot_info: &SlotInfo) -> Option<Du
 		let slot_lenience = std::cmp::min(skipped_slots, BACKOFF_CAP);
 		Some(Duration::from_millis(slot_lenience * slot_info.duration))
 	}
-}
-
-/// Something something
-async fn make_block_import_params<P, C, B, E> (
-	worker: impl SimpleSlotWorker<B, Proposer = P, Claim = C, EpochData = E>,
-	epoch_data: E,
-	proposal: Proposal<B, <P as Proposer<B>>::Transaction>,
-	claim: C,
-) -> Result<(), sp_consensus::Error>
-where
-	C: Send + 'static,
-	E: Send + 'static,
-	B: BlockT,
-	P: Proposer<B>,
-{
-	let block_import_params_maker = worker.block_import_params();
-	let block_import = worker.block_import();
-	let logging_target = worker.logging_target();
-	let (header, body) = proposal.block.deconstruct();
-	let header_num = *header.number();
-	let header_hash = header.hash();
-	let parent_hash = *header.parent_hash();
-
-	let block_import_params = block_import_params_maker(
-		header,
-		&header_hash,
-		body,
-		proposal.storage_changes,
-		claim,
-		epoch_data,
-	).await;
-
-	let block_import_params = match block_import_params {
-		Ok(params) => params,
-		Err(e) => return future::err(e),
-	};
-
-	info!(
-		"🔖 Pre-sealed block for proposal at {}. Hash now {:?}, previously {:?}.",
-		header_num,
-		block_import_params.post_hash(),
-		header_hash,
-	);
-
-	telemetry!(CONSENSUS_INFO; "slots.pre_sealed_block";
-		"header_num" => ?header_num,
-		"hash_now" => ?block_import_params.post_hash(),
-		"hash_previously" => ?header_hash,
-	);
-
-	if let Err(err) = block_import.lock().import_block(block_import_params, Default::default()) {
-		warn!(target: logging_target,
-			"Error with block built on {:?}: {:?}",
-			parent_hash,
-			err,
-		);
-
-		telemetry!(CONSENSUS_WARN; "slots.err_with_block_built_on";
-			"hash" => ?parent_hash, "err" => ?err,
-		);
-	}
-	future::ready(Ok(()))
 }
 
 #[cfg(test)]
