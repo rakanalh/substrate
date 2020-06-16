@@ -446,11 +446,11 @@ impl BareCryptoStore for Store {
 		public_keys.iter().all(|(p, t)| self.key_phrase_by_type(&p, *t).is_ok())
 	}
 
-	async fn sr25519_vrf_sign<'a>(
-		&'a self,
+	async fn sr25519_vrf_sign(
+		&self,
 		key_type: KeyTypeId,
 		public: &Sr25519Public,
-		transcript_data: VRFTranscriptData<'a>,
+		transcript_data: VRFTranscriptData,
 	) -> std::result::Result<VRFSignature, TraitError> {
 		let transcript = make_transcript(transcript_data);
 		let pair = self.key_pair_by_type::<Sr25519Pair>(public, key_type)

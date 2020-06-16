@@ -244,11 +244,11 @@ impl crate::traits::BareCryptoStore for KeyStore {
 		}
 	}
 
-	async fn sr25519_vrf_sign<'a>(
-		&'a self,
+	async fn sr25519_vrf_sign(
+		&self,
 		key_type: KeyTypeId,
 		public: &sr25519::Public,
-		transcript_data: VRFTranscriptData<'a>,
+		transcript_data: VRFTranscriptData,
 	) -> Result<VRFSignature, Error> {
 		let transcript = make_transcript(transcript_data);
 		let pair = self.sr25519_key_pair(key_type, public)
