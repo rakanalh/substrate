@@ -5999,6 +5999,7 @@ dependencies = [
 name = "sc-consensus-babe"
 version = "0.8.0-rc3"
 dependencies = [
+ "async-trait",
  "derive_more",
  "env_logger 0.7.1",
  "fork-tree",
@@ -6079,8 +6080,8 @@ name = "sc-consensus-epochs"
 version = "0.8.0-rc3"
 dependencies = [
  "fork-tree",
+ "futures 0.3.4",
  "parity-scale-codec",
- "parking_lot 0.10.2",
  "sc-client-api",
  "sp-blockchain",
  "sp-runtime",
@@ -7336,6 +7337,7 @@ dependencies = [
 name = "sp-consensus"
 version = "0.8.0-rc3"
 dependencies = [
+ "async-trait",
  "derive_more",
  "futures 0.3.4",
  "futures-timer 3.0.2",
