@@ -27,7 +27,6 @@
 //! queues to be instantiated simply.
 
 use std::collections::HashMap;
-
 use sp_runtime::{Justification, traits::{Block as BlockT, Header as _, NumberFor}};
 
 use crate::{
@@ -99,7 +98,7 @@ pub trait Verifier<B: BlockT>: Send + Sync {
 ///
 /// The `import_*` methods can be called in order to send elements for the import queue to verify.
 /// Afterwards, call `poll_actions` to determine how to respond to these elements.
-pub trait ImportQueue<B: BlockT>: Send {
+pub trait ImportQueue<B: BlockT>: Send + Sync {
 	/// Import bunch of blocks.
 	fn import_blocks(&mut self, origin: BlockOrigin, blocks: Vec<IncomingBlock<B>>);
 	/// Import a block justification.
@@ -185,18 +184,18 @@ pub enum BlockImportError {
 }
 
 /// Single block import function.
-pub fn import_single_block<B: BlockT, V: Verifier<B>, Transaction>(
-	import_handle: &mut dyn BlockImport<B, Transaction = Transaction, Error = ConsensusError>,
+pub async fn import_single_block<B: BlockT, V: Verifier<B>, Transaction>(
+	import_handle: &mut (dyn BlockImport<B, Transaction = Transaction, Error = ConsensusError> + Send + Sync),
 	block_origin: BlockOrigin,
 	block: IncomingBlock<B>,
 	verifier: &mut V,
 ) -> Result<BlockImportResult<NumberFor<B>>, BlockImportError> {
-	import_single_block_metered(import_handle, block_origin, block, verifier, None)
+	import_single_block_metered(import_handle, block_origin, block, verifier, None).await
 }
 
 /// Single block import function with metering.
-pub(crate) fn import_single_block_metered<B: BlockT, V: Verifier<B>, Transaction>(
-	import_handle: &mut dyn BlockImport<B, Transaction = Transaction, Error = ConsensusError>,
+pub(crate) async fn import_single_block_metered<B: BlockT, V: Verifier<B>, Transaction>(
+	import_handle: &mut (dyn BlockImport<B, Transaction = Transaction, Error = ConsensusError> + Send + Sync),
 	block_origin: BlockOrigin,
 	block: IncomingBlock<B>,
 	verifier: &mut V,

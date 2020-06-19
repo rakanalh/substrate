@@ -7438,6 +7438,7 @@ dependencies = [
 name = "sp-consensus"
 version = "0.8.0-rc3"
 dependencies = [
+ "async-trait",
  "derive_more",
  "futures 0.3.4",
  "futures-timer 3.0.2",
