@@ -94,7 +94,7 @@ use sc_keystore::{
 	proxy::KeystoreResponse,
 	KeyStorePtr,
 };
-use parking_lot::Mutex;
+use futures_util::lock::Mutex;
 use sp_inherents::{InherentDataProviders, InherentData};
 use sc_telemetry::{telemetry, CONSENSUS_TRACE, CONSENSUS_DEBUG};
 use sp_consensus::{
@@ -432,65 +432,6 @@ struct BabeWorker<B: BlockT, C, E, I, SO> {
 	config: Config,
 }
 
-impl <B, C, E, I, Error, SO> BabeWorker<B, C, E, I, SO> where
-	B: BlockT,
-	C: ProvideRuntimeApi<B> +
-		ProvideCache<B> +
-		HeaderBackend<B> +
-		HeaderMetadata<B, Error = ClientError>,
-	C::Api: BabeApi<B>,
-	E: Environment<B, Error = Error>,
-	E::Proposer: Proposer<B, Error = Error, Transaction = sp_api::TransactionFor<C, B>>,
-	I: BlockImport<B, Transaction = sp_api::TransactionFor<C, B>> + Send + Sync + 'static,
-	SO: SyncOracle + Send + Clone,
-	Error: std::error::Error + Send + From<ConsensusError> + From<I::Error> + 'static,
-{
-	async fn sign_block(
-		&self,
-		public: AuthorityId,
-		header: B::Header,
-		header_hash: B::Hash,
-		body: Vec<B::Extrinsic>,
-		storage_changes: StorageChanges<sp_api::TransactionFor<C, B>, B>,
-		epoch_descriptor: ViableEpochDescriptor<B::Hash, NumberFor<B>, Epoch>,
-	) -> Result<BlockImportParams<B, I::Transaction>, sp_consensus::Error> {
-		// sign the pre-sealed hash of the block and then
-		// add it to a digest item.
-		let public_type_pair = public.clone().into();
-		let public = public.to_raw_vec();
-		let response = self.keystore.sign_with(
-				<AuthorityId as AppKey>::ID,
-				&public_type_pair,
-				header_hash.as_ref()
-			)
-			.await
-			.map_err(|e| sp_consensus::Error::CannotSign(
-				public.clone(), e.to_string(),
-			))?;
-		match response {
-			KeystoreResponse::SignWith(Ok(signature)) => {
-				let signature: AuthoritySignature = signature.clone().try_into()
-					.map_err(|_| sp_consensus::Error::InvalidSignature(
-						signature, public
-					))?;
-				let digest_item = <DigestItemFor<B> as CompatibleDigestItem>::babe_seal(signature.into());
-
-				let mut import_block = BlockImportParams::new(BlockOrigin::Own, header);
-				import_block.post_digests.push(digest_item);
-				import_block.body = Some(body);
-				import_block.storage_changes = Some(storage_changes);
-				import_block.intermediates.insert(
-					Cow::from(INTERMEDIATE_KEY),
-					Box::new(BabeIntermediate::<B> { epoch_descriptor }) as Box<dyn Any>,
-				);
-
-				Ok(import_block)
-			},
-			_ => Err(sp_consensus::Error::KeystoreResponseInvalid)
-		}
-	}
-}
-
 #[async_trait]
 impl<B, C, E, I, Error, SO> sc_consensus_slots::SimpleSlotWorker<B> for BabeWorker<B, C, E, I, SO> where
 	B: BlockT,
@@ -630,7 +571,7 @@ impl<B, C, E, I, Error, SO> sc_consensus_slots::SimpleSlotWorker<B> for BabeWork
 		import_block.storage_changes = Some(storage_changes);
 		import_block.intermediates.insert(
 			Cow::from(INTERMEDIATE_KEY),
-			Box::new(BabeIntermediate::<B> { epoch_descriptor }) as Box<dyn Any>,
+			Box::new(BabeIntermediate::<B> { epoch_descriptor }) as Box<dyn Any + Send>,
 		);
 
 		Ok(import_block)
@@ -761,7 +702,7 @@ fn find_next_config_digest<B: BlockT>(header: &B::Header)
 }
 
 #[derive(Default, Clone)]
-struct TimeSource(Arc<Mutex<(Option<Duration>, Vec<(Instant, u64)>)>>);
+struct TimeSource(Arc<parking_lot::Mutex<(Option<Duration>, Vec<(Instant, u64)>)>>);
 
 impl SlotCompatible for TimeSource {
 	fn extract_timestamp_and_slot(
@@ -837,6 +778,7 @@ impl<Block, Client> BabeVerifier<Block, Client>
 	}
 }
 
+#[async_trait]
 impl<Block, Client> Verifier<Block> for BabeVerifier<Block, Client> where
 	Block: BlockT,
 	Client: HeaderMetadata<Block, Error = sp_blockchain::Error> + HeaderBackend<Block> + ProvideRuntimeApi<Block>
@@ -954,7 +896,7 @@ impl<Block, Client> Verifier<Block> for BabeVerifier<Block, Client> where
 				import_block.justification = justification;
 				import_block.intermediates.insert(
 					Cow::from(INTERMEDIATE_KEY),
-					Box::new(BabeIntermediate::<Block> { epoch_descriptor }) as Box<dyn Any>,
+					Box::new(BabeIntermediate::<Block> { epoch_descriptor }) as Box<dyn Any + Send>,
 				);
 				import_block.post_hash = Some(hash);
 
@@ -1032,6 +974,7 @@ impl<Block: BlockT, Client, I> BabeBlockImport<Block, Client, I> {
 	}
 }
 
+#[async_trait]
 impl<Block, Client, Inner> BlockImport<Block> for BabeBlockImport<Block, Client, Inner> where
 	Block: BlockT,
 	Inner: BlockImport<Block, Transaction = sp_api::TransactionFor<Client, Block>> + Send + Sync,
@@ -1043,7 +986,7 @@ impl<Block, Client, Inner> BlockImport<Block> for BabeBlockImport<Block, Client,
 	type Error = ConsensusError;
 	type Transaction = sp_api::TransactionFor<Client, Block>;
 
-	fn import_block(
+	async fn import_block(
 		&mut self,
 		mut block: BlockImportParams<Block, Self::Transaction>,
 		new_cache: HashMap<CacheKeyId, Vec<u8>>,
@@ -1085,7 +1028,7 @@ impl<Block, Client, Inner> BlockImport<Block> for BabeBlockImport<Block, Client,
 			);
 		}
 
-		let mut epoch_changes = self.epoch_changes.lock();
+		let mut epoch_changes = self.epoch_changes.lock().await;
 
 		// check if there's any epoch change expected to happen at this slot.
 		// `epoch` is the epoch to verify the block under, and `first_in_epoch` is true
@@ -1263,7 +1206,7 @@ impl<Block, Client, Inner> BlockImport<Block> for BabeBlockImport<Block, Client,
 			}))
 		};
 
-		let import_result = self.inner.import_block(block, new_cache);
+		let import_result = self.inner.import_block(block, new_cache).await;
 
 		// revert to the original epoch changes in case there's an error
 		// importing the block
@@ -1321,28 +1264,28 @@ fn prune_finalized<Block, Client>(
 ///
 /// Also returns a link object used to correctly instantiate the import queue
 /// and background worker.
-pub fn block_import<Client, Block: BlockT, I>(
+pub async fn block_import<Client, Block: BlockT, I>(
 	config: Config,
 	wrapped_block_import: I,
 	client: Arc<Client>,
 ) -> ClientResult<(BabeBlockImport<Block, Client, I>, BabeLink<Block>)> where
 	Client: AuxStore + HeaderBackend<Block> + HeaderMetadata<Block, Error = sp_blockchain::Error>,
 {
-	let epoch_changes = aux_schema::load_epoch_changes::<Block, _>(&*client, &config)?;
-	let link = BabeLink {
-		epoch_changes: epoch_changes.clone(),
-		time_source: Default::default(),
-		config: config.clone(),
-	};
+	let mut epoch_changes = aux_schema::load_epoch_changes::<Block, _>(&*client, &config)?;
 
 	// NOTE: this isn't entirely necessary, but since we didn't use to prune the
 	// epoch tree it is useful as a migration, so that nodes prune long trees on
 	// startup rather than waiting until importing the next epoch change block.
 	prune_finalized(
 		client.clone(),
-		&mut epoch_changes.lock(),
+		&mut epoch_changes,
 	)?;
-
+	let epoch_changes = Arc::new(Mutex::new(epoch_changes));
+	let link = BabeLink {
+		epoch_changes: epoch_changes.clone(),
+		time_source: Default::default(),
+		config: config.clone(),
+	};
 	let import = BabeBlockImport::new(
 		client,
 		epoch_changes,
