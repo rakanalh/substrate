@@ -32,8 +32,10 @@ const CHANNEL_SIZE: usize = 128;
 
 pub enum RequestMethod {
 	SignWith(KeyTypeId, CryptoTypePublicPair, Vec<u8>),
+	SignWithAll(KeyTypeId, Vec<CryptoTypePublicPair>, Vec<u8>),
 	HasKeys(Vec<(Vec<u8>, KeyTypeId)>),
 	InsertUnknown(KeyTypeId, String, Vec<u8>),
+	SR25519PublicKeys(KeyTypeId),
 	SR25519VrfSign(KeyTypeId, sr25519::Public, VRFTranscriptData),
 }
 
@@ -44,8 +46,10 @@ pub struct KeystoreRequest {
 
 pub enum KeystoreResponse {
 	SignWith(Result<Vec<u8>, Error>),
+	SignWithAll(Result<Vec<Result<Vec<u8>, Error>>, ()>),
 	HasKeys(bool),
 	InsertUnknown(Result<(), ()>),
+	SR25519PublicKeys(Vec<sr25519::Public>),
 	SR25519VrfSign(Result<VRFSignature, Error>)
 }
 
@@ -86,6 +90,15 @@ impl KeystoreProxy {
 		self.send_request(RequestMethod::SignWith(id, key.clone(), msg.to_vec())).await
 	}
 
+	pub async fn sign_with_all(
+		&self,
+		id: KeyTypeId,
+		keys: Vec<CryptoTypePublicPair>,
+		msg: &[u8],
+	) -> Result<KeystoreResponse, oneshot::Canceled> {
+		self.send_request(RequestMethod::SignWithAll(id, keys, msg.to_vec())).await
+	}
+
 	pub async fn has_keys(
 		&self,
 		public_keys: &[(Vec<u8>, KeyTypeId)]
@@ -104,6 +117,13 @@ impl KeystoreProxy {
 			suri.to_string(),
 			public.to_vec(),
 		)).await
+	}
+
+	pub async fn sr25519_public_keys(
+		&self,
+		key_type: KeyTypeId
+	) -> Result<KeystoreResponse, oneshot::Canceled> {
+		self.send_request(RequestMethod::SR25519PublicKeys(key_type)).await
 	}
 
 	pub async fn sr25519_vrf_sign(
@@ -153,6 +173,13 @@ impl<Store: BareCryptoStore + 'static> KeystoreReceiver<Store> {
 					return store;
 				})
 			},
+			RequestMethod::SignWithAll(id, keys, msg) => {
+				Box::pin(async move {
+					let result = store.sign_with_all(id, keys, &msg).await;
+					let _ = sender.send(KeystoreResponse::SignWithAll(result));
+					return store;
+				})
+			},
 			RequestMethod::HasKeys(keys) => {
 				Box::pin(async move {
 					let result = store.has_keys(&keys).await;
@@ -169,6 +196,16 @@ impl<Store: BareCryptoStore + 'static> KeystoreReceiver<Store> {
 						&pubkey,
 					).await;
 					let _ = sender.send(KeystoreResponse::InsertUnknown(result));
+					return store;
+				})
+			},
+			RequestMethod::SR25519PublicKeys(key_type) => {
+				Box::pin(async move {
+					let store = store;
+					let result = store.sr25519_public_keys(
+						key_type,
+					).await;
+					let _ = sender.send(KeystoreResponse::SR25519PublicKeys(result));
 					return store;
 				})
 			},
