@@ -41,7 +41,7 @@ use sp_runtime::traits::{Block as BlockT, Header, HashFor, NumberFor};
 use sp_api::{ProvideRuntimeApi, ApiRef};
 use std::{fmt::Debug, ops::Deref, sync::Arc, time::{Instant, Duration}};
 use sc_telemetry::{telemetry, CONSENSUS_DEBUG, CONSENSUS_WARN, CONSENSUS_INFO};
-use parking_lot::Mutex;
+use futures_util::lock::Mutex;
 
 /// The changes that need to applied to the storage to create the state for a block.
 ///
@@ -306,7 +306,7 @@ pub trait SimpleSlotWorker<B: BlockT> {
 			"hash_previously" => ?header_hash,
 		);
 
-		if let Err(err) = block_import.lock().import_block(block_import_params, Default::default()) {
+		if let Err(err) = block_import.lock().await.import_block(block_import_params, Default::default()).await {
 			warn!(target: logging_target,
 				"Error with block built on {:?}: {:?}",
 				parent_hash,
