@@ -314,7 +314,7 @@ impl<B: BlockT, Transaction: Send + Sync> BlockImportWorker<B, Transaction> {
 ///
 /// The returned `Future` yields at every imported block, which makes the execution more
 /// fine-grained and making it possible to interrupt the process.
-async fn import_many_blocks<B: BlockT, V: Verifier<B>, Transaction>(
+async fn import_many_blocks<B: BlockT, V: Verifier<B>, Transaction: Send>(
 	import_handle: BoxBlockImport<B, Transaction>,
 	blocks_origin: BlockOrigin,
 	blocks: Vec<IncomingBlock<B>>,
