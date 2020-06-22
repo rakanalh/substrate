@@ -50,8 +50,10 @@ pub enum Error {
 	ParsingMultiaddress(libp2p::core::multiaddr::Error),
 	/// Failed to sign using a specific public key.
 	MissingSignature(CryptoTypePublicPair),
-	/// Failed to sign using all public keys.
-	Signing,
+	/// Failed call to the keystore
+	Keystore(sc_keystore::Error),
 	/// Failed to register Prometheus metric.
 	Prometheus(prometheus_endpoint::PrometheusError),
+	/// Channel canceled
+	ChannelRequestCanceled,
 }
