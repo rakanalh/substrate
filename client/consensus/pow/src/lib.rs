@@ -37,6 +37,8 @@ use std::borrow::Cow;
 use std::thread;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use async_trait::async_trait;
+use futures::executor::block_on;
 use sc_client_api::{BlockOf, backend::AuxStore};
 use sp_blockchain::{HeaderBackend, ProvideCache, well_known_cache_keys::Id as CacheKeyId};
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
@@ -270,6 +272,7 @@ impl<B, I, C, S, Algorithm> PowBlockImport<B, I, C, S, Algorithm> where
 	}
 }
 
+#[async_trait]
 impl<B, I, C, S, Algorithm> BlockImport<B> for PowBlockImport<B, I, C, S, Algorithm> where
 	B: BlockT,
 	I: BlockImport<B, Transaction = sp_api::TransactionFor<C, B>> + Send + Sync,
@@ -277,8 +280,8 @@ impl<B, I, C, S, Algorithm> BlockImport<B> for PowBlockImport<B, I, C, S, Algori
 	S: SelectChain<B>,
 	C: ProvideRuntimeApi<B> + Send + Sync + HeaderBackend<B> + AuxStore + ProvideCache<B> + BlockOf,
 	C::Api: BlockBuilderApi<B, Error = sp_blockchain::Error>,
-	Algorithm: PowAlgorithm<B>,
-	Algorithm::Difficulty: 'static,
+	Algorithm: PowAlgorithm<B> + Send,
+	Algorithm::Difficulty: Send + Sync + 'static,
 {
 	type Error = ConsensusError;
 	type Transaction = sp_api::TransactionFor<C, B>;
@@ -290,7 +293,7 @@ impl<B, I, C, S, Algorithm> BlockImport<B> for PowBlockImport<B, I, C, S, Algori
 		self.inner.check_block(block).map_err(Into::into)
 	}
 
-	fn import_block(
+	async fn import_block(
 		&mut self,
 		mut block: BlockImportParams<B, Self::Transaction>,
 		new_cache: HashMap<CacheKeyId, Vec<u8>>,
@@ -364,7 +367,7 @@ impl<B, I, C, S, Algorithm> BlockImport<B> for PowBlockImport<B, I, C, S, Algori
 			));
 		}
 
-		self.inner.import_block(block, new_cache).map_err(Into::into)
+		self.inner.import_block(block, new_cache).await.map_err(Into::into)
 	}
 }
 
@@ -410,11 +413,12 @@ impl<B: BlockT, Algorithm> PowVerifier<B, Algorithm> {
 	}
 }
 
+#[async_trait]
 impl<B: BlockT, Algorithm> Verifier<B> for PowVerifier<B, Algorithm> where
 	Algorithm: PowAlgorithm<B> + Send + Sync,
-	Algorithm::Difficulty: 'static,
+	Algorithm::Difficulty: Send + Sync + 'static,
 {
-	fn verify(
+	async fn verify(
 		&mut self,
 		origin: BlockOrigin,
 		header: B::Header,
@@ -434,7 +438,7 @@ impl<B: BlockT, Algorithm> Verifier<B> for PowVerifier<B, Algorithm> where
 		import_block.justification = justification;
 		import_block.intermediates.insert(
 			Cow::from(INTERMEDIATE_KEY),
-			Box::new(intermediate) as Box<dyn Any>
+			Box::new(intermediate) as Box<dyn Any + Send>
 		);
 		import_block.post_hash = Some(hash);
 
@@ -475,6 +479,7 @@ pub fn import_queue<B, Transaction, Algorithm>(
 	B: BlockT,
 	Transaction: Send + Sync + 'static,
 	Algorithm: PowAlgorithm<B> + Clone + Send + Sync + 'static,
+	Algorithm::Difficulty: Send + Sync,
 {
 	register_pow_inherent_data_provider(&inherent_data_providers)?;
 
@@ -515,6 +520,7 @@ pub fn start_mine<B: BlockT, C, Algorithm, E, SO, S, CAW>(
 ) where
 	C: HeaderBackend<B> + AuxStore + ProvideRuntimeApi<B> + 'static,
 	Algorithm: PowAlgorithm<B> + Send + Sync + 'static,
+	Algorithm::Difficulty: Send + Sync,
 	E: Environment<B> + Send + Sync + 'static,
 	E::Error: std::fmt::Debug,
 	E::Proposer: Proposer<B, Transaction = sp_api::TransactionFor<C, B>>,
@@ -528,7 +534,7 @@ pub fn start_mine<B: BlockT, C, Algorithm, E, SO, S, CAW>(
 
 	thread::spawn(move || {
 		loop {
-			match mine_loop(
+			match block_on(mine_loop(
 				&mut block_import,
 				client.as_ref(),
 				&algorithm,
@@ -540,7 +546,7 @@ pub fn start_mine<B: BlockT, C, Algorithm, E, SO, S, CAW>(
 				select_chain.as_ref(),
 				&inherent_data_providers,
 				&can_author_with,
-			) {
+			)) {
 				Ok(()) => (),
 				Err(e) => error!(
 					"Mining block failed with {:?}. Sleep for 1 second before restarting...",
@@ -552,7 +558,7 @@ pub fn start_mine<B: BlockT, C, Algorithm, E, SO, S, CAW>(
 	});
 }
 
-fn mine_loop<B: BlockT, C, Algorithm, E, SO, S, CAW>(
+async fn mine_loop<B: BlockT, C, Algorithm, E, SO, S, CAW>(
 	block_import: &mut BoxBlockImport<B, sp_api::TransactionFor<C, B>>,
 	client: &C,
 	algorithm: &Algorithm,
@@ -567,7 +573,7 @@ fn mine_loop<B: BlockT, C, Algorithm, E, SO, S, CAW>(
 ) -> Result<(), Error<B>> where
 	C: HeaderBackend<B> + AuxStore + ProvideRuntimeApi<B>,
 	Algorithm: PowAlgorithm<B>,
-	Algorithm::Difficulty: 'static,
+	Algorithm::Difficulty: Send + Sync + 'static,
 	E: Environment<B>,
 	E::Proposer: Proposer<B, Transaction = sp_api::TransactionFor<C, B>>,
 	E::Error: std::fmt::Debug,
@@ -668,11 +674,11 @@ fn mine_loop<B: BlockT, C, Algorithm, E, SO, S, CAW>(
 		import_block.storage_changes = Some(proposal.storage_changes);
 		import_block.intermediates.insert(
 			Cow::from(INTERMEDIATE_KEY),
-			Box::new(intermediate) as Box<dyn Any>
+			Box::new(intermediate) as Box<dyn Any + Send>
 		);
 		import_block.post_hash = Some(hash);
 
-		block_import.import_block(import_block, HashMap::default())
+		block_import.import_block(import_block, HashMap::default()).await
 			.map_err(|e| Error::BlockBuiltError(best_hash, e))?;
 	}
 }

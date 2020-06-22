@@ -82,6 +82,7 @@ pub async fn seal_new_block<B, SC, HB, E, T, P>(
 	}: SealBlockParams<'_, B, SC, HB, E, T, P>
 )
 	where
+		T: Send,
 		B: BlockT,
 		HB: HeaderBackend<B>,
 		E: Environment<B>,
@@ -125,7 +126,7 @@ pub async fn seal_new_block<B, SC, HB, E, T, P>(
 		params.finalized = finalize;
 		params.fork_choice = Some(ForkChoiceStrategy::LongestChain);
 
-		match block_import.import_block(params, HashMap::new())? {
+		match block_import.import_block(params, HashMap::new()).await? {
 			ImportResult::Imported(aux) => {
 				Ok(CreatedBlock { hash: <B as BlockT>::Header::hash(&header), aux })
 			},

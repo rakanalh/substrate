@@ -19,6 +19,7 @@
 //! A manual sealing engine: the engine listens for rpc calls to seal blocks and create forks.
 //! This is suitable for a testing environment.
 
+use async_trait::async_trait;
 use futures::prelude::*;
 use sp_consensus::{
 	Environment, Proposer, ForkChoiceStrategy, BlockImportParams, BlockOrigin, SelectChain,
@@ -49,8 +50,9 @@ pub use self::{
 /// The verifier for the manual seal engine; instantly finalizes.
 struct ManualSealVerifier;
 
+#[async_trait]
 impl<B: BlockT> Verifier<B> for ManualSealVerifier {
-	fn verify(
+	async fn verify(
 		&mut self,
 		origin: BlockOrigin,
 		header: B::Header,
@@ -107,6 +109,7 @@ pub async fn run_manual_seal<B, CB, E, C, A, SC, S, T>(
 		<E::Proposer as Proposer<B>>::Error: std::fmt::Display,
 		S: Stream<Item=EngineCommand<<B as BlockT>::Hash>> + Unpin + 'static,
 		SC: SelectChain<B> + 'static,
+		T: Send,
 {
 	while let Some(command) = commands_stream.next().await {
 		match command {
@@ -165,7 +168,8 @@ pub async fn run_instant_seal<B, CB, E, C, A, SC, T>(
 		E: Environment<B> + 'static,
 		E::Error: std::fmt::Display,
 		<E::Proposer as Proposer<B>>::Error: std::fmt::Display,
-		SC: SelectChain<B> + 'static
+		SC: SelectChain<B> + 'static,
+		T: Send,
 {
 	// instant-seal creates blocks as soon as transactions are imported
 	// into the transaction pool.
