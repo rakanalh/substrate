@@ -6055,10 +6055,12 @@ dependencies = [
 name = "sc-consensus-aura"
 version = "0.8.0-rc3"
 dependencies = [
+ "async-trait",
  "derive_more",
  "env_logger 0.7.1",
  "futures 0.3.4",
  "futures-timer 3.0.2",
+ "futures-util",
  "log",
  "parity-scale-codec",
  "parking_lot 0.10.2",
@@ -6099,6 +6101,7 @@ dependencies = [
  "fork-tree",
  "futures 0.3.4",
  "futures-timer 3.0.2",
+ "futures-util",
  "log",
  "merlin",
  "num-bigint",
@@ -6175,6 +6178,7 @@ version = "0.8.0-rc3"
 dependencies = [
  "fork-tree",
  "futures 0.3.4",
+ "futures-util",
  "parity-scale-codec",
  "sc-client-api",
  "sp-blockchain",
@@ -6186,6 +6190,7 @@ name = "sc-consensus-manual-seal"
 version = "0.8.0-rc3"
 dependencies = [
  "assert_matches",
+ "async-trait",
  "derive_more",
  "env_logger 0.7.1",
  "futures 0.3.4",
@@ -6215,6 +6220,7 @@ dependencies = [
 name = "sc-consensus-pow"
 version = "0.8.0-rc3"
 dependencies = [
+ "async-trait",
  "derive_more",
  "futures 0.3.4",
  "log",
@@ -6239,9 +6245,9 @@ dependencies = [
  "async-trait",
  "futures 0.3.4",
  "futures-timer 3.0.2",
+ "futures-util",
  "log",
  "parity-scale-codec",
- "parking_lot 0.10.2",
  "sc-client-api",
  "sc-telemetry",
  "sp-api",
