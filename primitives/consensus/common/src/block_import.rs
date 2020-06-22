@@ -24,7 +24,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::any::Any;
-
+use async_trait::async_trait;
 use crate::Error;
 use crate::import_queue::{Verifier, CacheKeyId};
 
@@ -115,7 +115,7 @@ pub struct BlockCheckParams<Block: BlockT> {
 
 /// Data required to import a Block.
 #[non_exhaustive]
-pub struct BlockImportParams<Block: BlockT, Transaction> {
+pub struct BlockImportParams<Block: BlockT, Transaction: Send> {
 	/// Origin of the Block
 	pub origin: BlockOrigin,
 	/// The header, without consensus post-digests applied. This should be in the same
@@ -148,7 +148,7 @@ pub struct BlockImportParams<Block: BlockT, Transaction> {
 	/// Intermediate values that are interpreted by block importers. Each block importer,
 	/// upon handling a value, removes it from the intermediate list. The final block importer
 	/// rejects block import if there are still intermediate values that remain unhandled.
-	pub intermediates: HashMap<Cow<'static, [u8]>, Box<dyn Any>>,
+	pub intermediates: HashMap<Cow<'static, [u8]>, Box<dyn Any + Send>>,
 	/// Auxiliary consensus data produced by the block.
 	/// Contains a list of key-value pairs. If values are `None`, the keys
 	/// will be deleted.
@@ -168,7 +168,7 @@ pub struct BlockImportParams<Block: BlockT, Transaction> {
 	pub post_hash: Option<Block::Hash>,
 }
 
-impl<Block: BlockT, Transaction> BlockImportParams<Block, Transaction> {
+impl<Block: BlockT, Transaction: Send> BlockImportParams<Block, Transaction> {
 	/// Create a new block import params.
 	pub fn new(
 		origin: BlockOrigin,
@@ -212,7 +212,7 @@ impl<Block: BlockT, Transaction> BlockImportParams<Block, Transaction> {
 	///
 	/// Actually this just sets `storage_changes` to `None` and makes rustc think that `Self` now
 	/// uses a different transaction type.
-	pub fn convert_transaction<Transaction2>(self) -> BlockImportParams<Block, Transaction2> {
+	pub fn convert_transaction<Transaction2: Send>(self) -> BlockImportParams<Block, Transaction2> {
 		BlockImportParams {
 			origin: self.origin,
 			header: self.header,
@@ -261,11 +261,12 @@ impl<Block: BlockT, Transaction> BlockImportParams<Block, Transaction> {
 }
 
 /// Block import trait.
+#[async_trait]
 pub trait BlockImport<B: BlockT> {
 	/// The error type.
 	type Error: std::error::Error + Send + 'static;
 	/// The transaction type used by the backend.
-	type Transaction;
+	type Transaction: Send;
 
 	/// Check block preconditions.
 	fn check_block(
@@ -276,14 +277,15 @@ pub trait BlockImport<B: BlockT> {
 	/// Import a block.
 	///
 	/// Cached data can be accessed through the blockchain cache.
-	fn import_block(
+	async fn import_block(
 		&mut self,
 		block: BlockImportParams<B, Self::Transaction>,
 		cache: HashMap<CacheKeyId, Vec<u8>>,
 	) -> Result<ImportResult, Self::Error>;
 }
 
-impl<B: BlockT, Transaction> BlockImport<B> for crate::import_queue::BoxBlockImport<B, Transaction> {
+#[async_trait]
+impl<B: BlockT, Transaction: Send> BlockImport<B> for crate::import_queue::BoxBlockImport<B, Transaction> {
 	type Error = crate::error::Error;
 	type Transaction = Transaction;
 
@@ -298,16 +300,17 @@ impl<B: BlockT, Transaction> BlockImport<B> for crate::import_queue::BoxBlockImp
 	/// Import a block.
 	///
 	/// Cached data can be accessed through the blockchain cache.
-	fn import_block(
+	async fn import_block(
 		&mut self,
 		block: BlockImportParams<B, Transaction>,
 		cache: HashMap<CacheKeyId, Vec<u8>>,
 	) -> Result<ImportResult, Self::Error> {
-		(**self).import_block(block, cache)
+		(**self).import_block(block, cache).await
 	}
 }
 
-impl<B: BlockT, T, E: std::error::Error + Send + 'static, Transaction> BlockImport<B> for Arc<T>
+#[async_trait]
+impl<B: BlockT, T: Sync + Send, E: std::error::Error + Send + 'static, Transaction: Send + 'static> BlockImport<B> for Arc<T>
 	where for<'r> &'r T: BlockImport<B, Error = E, Transaction = Transaction>
 {
 	type Error = E;
@@ -320,12 +323,12 @@ impl<B: BlockT, T, E: std::error::Error + Send + 'static, Transaction> BlockImpo
 		(&**self).check_block(block)
 	}
 
-	fn import_block(
+	async fn import_block(
 		&mut self,
 		block: BlockImportParams<B, Transaction>,
 		cache: HashMap<CacheKeyId, Vec<u8>>,
 	) -> Result<ImportResult, Self::Error> {
-		(&**self).import_block(block, cache)
+		(&**self).import_block(block, cache).await
 	}
 }
 

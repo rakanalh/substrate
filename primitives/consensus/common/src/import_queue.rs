@@ -26,6 +26,7 @@
 //! instantiated. The `BasicQueue` and `BasicVerifier` traits allow serial
 //! queues to be instantiated simply.
 
+use async_trait::async_trait;
 use std::collections::HashMap;
 use sp_runtime::{Justification, traits::{Block as BlockT, Header as _, NumberFor}};
 
@@ -81,11 +82,12 @@ pub struct IncomingBlock<B: BlockT> {
 pub type CacheKeyId = [u8; 4];
 
 /// Verify a justification of a block
+#[async_trait]
 pub trait Verifier<B: BlockT>: Send + Sync {
 	/// Verify the given data and return the BlockImportParams and an optional
 	/// new set of validators to import. If not, err with an Error-Message
 	/// presented to the User in the logs.
-	fn verify(
+	async fn verify(
 		&mut self,
 		origin: BlockOrigin,
 		header: B::Header,
@@ -184,7 +186,7 @@ pub enum BlockImportError {
 }
 
 /// Single block import function.
-pub async fn import_single_block<B: BlockT, V: Verifier<B>, Transaction>(
+pub async fn import_single_block<B: BlockT, V: Verifier<B>, Transaction: Send>(
 	import_handle: &mut (dyn BlockImport<B, Transaction = Transaction, Error = ConsensusError> + Send + Sync),
 	block_origin: BlockOrigin,
 	block: IncomingBlock<B>,
@@ -194,7 +196,7 @@ pub async fn import_single_block<B: BlockT, V: Verifier<B>, Transaction>(
 }
 
 /// Single block import function with metering.
-pub(crate) async fn import_single_block_metered<B: BlockT, V: Verifier<B>, Transaction>(
+pub(crate) async fn import_single_block_metered<B: BlockT, V: Verifier<B>, Transaction: Send>(
 	import_handle: &mut (dyn BlockImport<B, Transaction = Transaction, Error = ConsensusError> + Send + Sync),
 	block_origin: BlockOrigin,
 	block: IncomingBlock<B>,
@@ -259,7 +261,7 @@ pub(crate) async fn import_single_block_metered<B: BlockT, V: Verifier<B>, Trans
 	}
 
 	let started = std::time::Instant::now();
-	let (mut import_block, maybe_keys) = verifier.verify(block_origin, header, justification, block.body)
+	let (mut import_block, maybe_keys) = verifier.verify(block_origin, header, justification, block.body).await
 		.map_err(|msg| {
 			if let Some(ref peer) = peer {
 				trace!(target: "sync", "Verifying {}({}) from {} failed: {}", number, hash, peer, msg);
@@ -282,5 +284,5 @@ pub(crate) async fn import_single_block_metered<B: BlockT, V: Verifier<B>, Trans
 	}
 	import_block.allow_missing_state = block.allow_missing_state;
 
-	import_handler(import_handle.import_block(import_block.convert_transaction(), cache))
+	import_handler(import_handle.import_block(import_block.convert_transaction(), cache).await)
 }
