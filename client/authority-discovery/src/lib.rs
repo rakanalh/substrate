@@ -54,8 +54,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures::task::{Context, Poll};
-use futures::{Future, FutureExt, ready, Stream, StreamExt};
+use futures::{Future, FutureExt, Stream, StreamExt};
 use futures_timer::Delay;
 
 use addr_cache::AddrCache;
@@ -112,11 +111,6 @@ pub enum Role {
 	Sentry,
 }
 
-enum KeystoreFuture {
-	PublishAddresses(Box<dyn Future<Output = Result<()>> + Send + Sync>),
-	RequestAddresses(Box<dyn Future<Output = Result<()>> + Send + Sync>),
-}
-
 /// An `AuthorityDiscovery` makes a given authority discoverable and discovers other authorities.
 pub struct AuthorityDiscovery<Client, Network, Block>
 where
@@ -149,8 +143,6 @@ where
 	metrics: Option<Metrics>,
 
 	role: Role,
-
-	keystore_futures: Vec<KeystoreFuture>,
 
 	phantom: PhantomData<Block>,
 }
@@ -224,8 +216,38 @@ where
 			addr_cache,
 			role,
 			metrics,
-			keystore_futures: vec![],
 			phantom: PhantomData,
+		}
+	}
+
+	async fn run(&mut self) {
+		// Process incoming events.
+		if !self.handle_dht_events().await {
+			// `handle_dht_events` returns `Poll::Ready(())` when the Dht event stream terminated.
+			// Termination of the Dht event stream implies that the underlying network terminated,
+			// thus authority discovery should terminate as well.
+			return ();
+		}
+
+
+		// Publish own addresses.
+		self.publish_interval.next().await;
+
+		if let Err(e) = self.publish_ext_addresses().await {
+			error!(
+				target: LOG_TARGET,
+				"Failed to publish external addresses: {:?}", e,
+			);
+		}
+
+		// Request addresses of authorities.
+		self.query_interval.next().await;
+
+		if let Err(e) = self.request_addresses_of_others().await {
+			error!(
+				target: LOG_TARGET,
+				"Failed to request addresses of authorities: {:?}", e,
+			);
 		}
 	}
 
@@ -350,9 +372,9 @@ where
 	/// Returns either:
 	///   - Poll::Pending when there are no more events to handle or
 	///   - Poll::Ready(()) when the dht event stream terminated.
-	fn handle_dht_events(&mut self, cx: &mut Context) -> Poll<()>{
+	async fn handle_dht_events(&mut self) -> bool {
 		loop {
-			match ready!(self.dht_event_rx.poll_next_unpin(cx)) {
+			match self.dht_event_rx.next().await {
 				Some(DhtEvent::ValueFound(v)) => {
 					if let Some(metrics) = &self.metrics {
 						metrics.dht_event_received.with_label_values(&["value_found"]).inc();
@@ -409,7 +431,7 @@ where
 				},
 				None => {
 					debug!(target: LOG_TARGET, "Dht event stream terminated.");
-					return Poll::Ready(());
+					return false;
 				},
 			}
 		}
@@ -546,70 +568,6 @@ where
 			.map_err(Error::SettingPeersetPriorityGroup)?;
 
 		Ok(())
-	}
-}
-
-impl<Client, Network, Block> Future for AuthorityDiscovery<Client, Network, Block>
-where
-	Block: BlockT + Unpin + 'static,
-	Network: NetworkProvider + Send + Sync,
-	Client: ProvideRuntimeApi<Block> + Send + Sync + 'static + HeaderBackend<Block>,
-	<Client as ProvideRuntimeApi<Block>>::Api:
-		AuthorityDiscoveryApi<Block, Error = sp_blockchain::Error>,
-{
-	type Output = ();
-
-	fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-		for keystore_future in self.keystore_futures {
-			match keystore_future {
-				KeystoreFuture::PublishAddresses(future) => {
-					if let Poll::Ready(Err(e)) = Pin::new(&mut future).poll(cx) {
-						error!(
-							target: LOG_TARGET,
-							"Failed to publish external addresses: {:?}", e,
-						);
-					}
-				},
-				KeystoreFuture::RequestAddresses(future) => {
-					if let Poll::Ready(Err(e)) = Pin::new(&mut future).poll(cx) {
-						error!(
-							target: LOG_TARGET,
-							"Failed to request addresses of authorities: {:?}", e,
-						);
-					}
-				}
-			}
-		}
-		// Process incoming events.
-		if let Poll::Ready(()) = self.handle_dht_events(cx) {
-			// `handle_dht_events` returns `Poll::Ready(())` when the Dht event stream terminated.
-			// Termination of the Dht event stream implies that the underlying network terminated,
-			// thus authority discovery should terminate as well.
-			return Poll::Ready(());
-		}
-
-
-		// Publish own addresses.
-		if let Poll::Ready(_) = self.publish_interval.poll_next_unpin(cx) {
-			// Register waker of underlying task for next interval.
-			while let Poll::Ready(_) = self.publish_interval.poll_next_unpin(cx) {}
-
-			self.keystore_futures.push(
-				KeystoreFuture::PublishAddresses(Box::new(self.publish_ext_addresses()))
-			);
-		}
-
-		// Request addresses of authorities.
-		if let Poll::Ready(_) = self.query_interval.poll_next_unpin(cx) {
-			// Register waker of underlying task for next interval.
-			while let Poll::Ready(_) = self.query_interval.poll_next_unpin(cx) {}
-
-			self.keystore_futures.push(
-				KeystoreFuture::RequestAddresses(Box::new(self.request_addresses_of_others()))
-			);
-		}
-
-		Poll::Pending
 	}
 }
 

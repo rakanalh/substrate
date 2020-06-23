@@ -250,7 +250,7 @@ macro_rules! new_full {
 				service.prometheus_registry(),
 			);
 
-			service.spawn_task("authority-discovery", authority_discovery);
+			service.spawn_task("authority-discovery", authority_discovery.run());
 		}
 
 		// if the node isn't actively participating in consensus then it doesn't
