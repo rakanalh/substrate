@@ -448,7 +448,7 @@ impl<T: Clone> SlotDuration<T> {
 		CB: FnOnce(ApiRef<C::Api>, &BlockId<B>) -> sp_blockchain::Result<T>,
 		T: SlotData + Encode + Decode + Debug,
 	{
-		match client.get_aux(T::SLOT_KEY)? {
+		let slot_duration = match client.get_aux(T::SLOT_KEY)? {
 			Some(v) => <T as codec::Decode>::decode(&mut &v[..])
 				.map(SlotDuration)
 				.map_err(|_| {
@@ -472,7 +472,15 @@ impl<T: Clone> SlotDuration<T> {
 
 				Ok(SlotDuration(genesis_slot_duration))
 			}
+		}?;
+
+		if slot_duration.slot_duration() == 0 {
+			return Err(sp_blockchain::Error::Msg(
+				"Invalid value for slot_duration: the value must be greater than 0.".into(),
+			))
 		}
+
+		Ok(slot_duration)
 	}
 
 	/// Returns slot data value.
