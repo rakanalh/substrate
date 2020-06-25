@@ -58,7 +58,6 @@
 
 use futures::{
 	prelude::*,
-	executor::block_on,
 	StreamExt,
 };
 use log::{debug, info};
@@ -75,13 +74,15 @@ use sp_runtime::generic::BlockId;
 use sp_runtime::traits::{NumberFor, Block as BlockT, DigestFor, Zero};
 use sp_inherents::InherentDataProviders;
 use sp_consensus::{SelectChain, BlockImport};
-use sp_core::{
-	crypto::Public,
-	traits::BareCryptoStorePtr,
-};
+use sp_core::crypto::Public;
+use sp_finality_grandpa::{RoundNumber, localized_payload};
 use sp_application_crypto::AppKey;
 use sp_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver};
 use sc_telemetry::{telemetry, CONSENSUS_INFO, CONSENSUS_DEBUG};
+use sc_keystore::{
+	KeyStorePtr,
+	proxy::KeystoreResponse,
+};
 use parking_lot::RwLock;
 
 use finality_grandpa::Error as GrandpaError;
@@ -270,7 +271,7 @@ pub struct Config {
 	/// Some local identifier of the voter.
 	pub name: Option<String>,
 	/// The keystore that manages the keys of this node.
-	pub keystore: Option<BareCryptoStorePtr>,
+	pub keystore: Option<KeyStorePtr>,
 }
 
 impl Config {
@@ -290,8 +291,8 @@ pub enum Error {
 	Blockchain(String),
 	/// Could not complete a round on disk.
 	Client(ClientError),
-	/// Could not sign outgoing message
-	Signing(String),
+	/// Keystore related errors
+	Keystore(String),
 	/// An invariant has been violated (e.g. not finalizing pending change blocks in-order)
 	Safety(String),
 	/// A timer failed to fire.
@@ -589,12 +590,12 @@ where
 	))
 }
 
-fn global_communication<BE, Block: BlockT, C, N>(
+async fn global_communication<BE, Block: BlockT, C, N>(
 	set_id: SetId,
 	voters: &Arc<VoterSet<AuthorityId>>,
 	client: Arc<C>,
 	network: &NetworkBridge<Block, N>,
-	keystore: &Option<BareCryptoStorePtr>,
+	keystore: &Option<KeyStorePtr>,
 	metrics: Option<until_imported::Metrics>,
 ) -> (
 	impl Stream<
@@ -610,7 +611,7 @@ fn global_communication<BE, Block: BlockT, C, N>(
 	N: NetworkT<Block>,
 	NumberFor<Block>: BlockNumberOps,
 {
-	let is_voter = is_voter(voters, keystore.as_ref()).is_some();
+	let is_voter = is_voter(voters, keystore.as_ref()).await.is_some();
 
 	// verification stream
 	let (global_in, global_out) = network.global_communication(
@@ -684,9 +685,9 @@ pub struct GrandpaParams<Block: BlockT, C, N, SC, VR> {
 
 /// Run a GRANDPA voter as a task. Provide configuration and a link to a
 /// block import worker that has already been instantiated with `block_import`.
-pub fn run_grandpa_voter<Block: BlockT, BE: 'static, C, N, SC, VR>(
+pub async fn run_grandpa_voter<Block: BlockT, BE: 'static, C, N, SC, VR>(
 	grandpa_params: GrandpaParams<Block, C, N, SC, VR>,
-) -> sp_blockchain::Result<impl Future<Output = ()> + Unpin + Send + 'static> where
+) -> sp_blockchain::Result<()> where
 	Block::Hash: Ord,
 	BE: Backend<Block> + 'static,
 	N: NetworkT<Block> + Send + Sync + Clone + 'static,
@@ -731,32 +732,26 @@ pub fn run_grandpa_voter<Block: BlockT, BE: 'static, C, N, SC, VR>(
 	register_finality_tracker_inherent_data_provider(client.clone(), &inherent_data_providers)?;
 
 	let conf = config.clone();
-	let telemetry_task = if let Some(telemetry_on_connect) = telemetry_on_connect {
+	if let Some(mut telemetry_on_connect) = telemetry_on_connect {
 		let authorities = persistent_data.authority_set.clone();
-		let events = telemetry_on_connect
-			.for_each(move |_| {
-				let curr = authorities.current_authorities();
-				let mut auths = curr.iter().map(|(p, _)| p);
-				let maybe_authority_id = authority_id(&mut auths, conf.keystore.as_ref())
-					.unwrap_or_default();
+		for _ in telemetry_on_connect.next().await {
+			let curr = authorities.current_authorities();
+			let mut auths = curr.iter().map(|(p, _)| p);
+			let maybe_authority_id = authority_id(&mut auths, conf.keystore.as_ref()).await
+				.unwrap_or_default();
 
-				telemetry!(CONSENSUS_INFO; "afg.authority_set";
-					"authority_id" => maybe_authority_id.to_string(),
-					"authority_set_id" => ?authorities.set_id(),
-					"authorities" => {
-						let authorities: Vec<String> = curr.iter()
-							.map(|(id, _)| id.to_string()).collect();
-						serde_json::to_string(&authorities)
-							.expect("authorities is always at least an empty vector; elements are always of type string")
-					}
-				);
-				future::ready(())
-			});
-		future::Either::Left(events)
-	} else {
-		future::Either::Right(future::pending())
-	};
-
+			telemetry!(CONSENSUS_INFO; "afg.authority_set";
+				"authority_id" => maybe_authority_id.to_string(),
+				"authority_set_id" => ?authorities.set_id(),
+				"authorities" => {
+					let authorities: Vec<String> = curr.iter()
+						.map(|(id, _)| id.to_string()).collect();
+					serde_json::to_string(&authorities)
+						.expect("authorities is always at least an empty vector; elements are always of type string")
+				}
+			);
+		}
+	}
 	let voter_work = VoterWork::new(
 		client,
 		config,
@@ -769,14 +764,8 @@ pub fn run_grandpa_voter<Block: BlockT, BE: 'static, C, N, SC, VR>(
 		shared_voter_state,
 	);
 
-	let voter_work = voter_work
-		.map(|_| ());
-
-	// Make sure that `telemetry_task` doesn't accidentally finish and kill grandpa.
-	let telemetry_task = telemetry_task
-		.then(|_| future::pending::<()>());
-
-	Ok(future::select(voter_work, telemetry_task).map(drop))
+	voter_work.await.map(|_| ());
+	Ok(())
 }
 
 struct Metrics {
@@ -870,10 +859,10 @@ where
 	/// Rebuilds the `self.voter` field using the current authority set
 	/// state. This method should be called when we know that the authority set
 	/// has changed (e.g. as signalled by a voter command).
-	fn rebuild_voter(&mut self) {
+	async fn rebuild_voter(&mut self) {
 		debug!(target: "afg", "{}: Starting new voter with set ID {}", self.env.config.name(), self.env.set_id);
 
-		let authority_id = is_voter(&self.env.voters, self.env.config.keystore.as_ref())
+		let authority_id = is_voter(&self.env.voters, self.env.config.keystore.as_ref()).await
 			.unwrap_or_default();
 
 		telemetry!(CONSENSUS_DEBUG; "afg.starting_new_voter";
@@ -910,7 +899,7 @@ where
 					&self.env.network,
 					&self.env.config.keystore,
 					self.metrics.as_ref().map(|m| m.until_imported.clone()),
-				);
+				).await;
 
 				let last_completed_round = completed_rounds.last();
 
@@ -1092,29 +1081,32 @@ pub fn setup_disabled_grandpa<Block: BlockT, Client, N>(
 }
 
 /// Localizes the message to the given set and round and signs the payload.
-#[cfg(feature = "std")]
 pub async fn sign_message<H, N>(
-	keystore: Arc<KeystoreProxy>,
-	message: grandpa::Message<H, N>,
+	keystore: KeyStorePtr,
+	message: finality_grandpa::Message<H, N>,
 	public: AuthorityId,
 	round: RoundNumber,
 	set_id: SetId,
-) -> Result<grandpa::SignedMessage<H, N, AuthoritySignature, AuthorityId>, StoreError>
+) -> Result<finality_grandpa::SignedMessage<H, N, AuthoritySignature, AuthorityId>, Error>
 where
-	H: Encode,
-	N: Encode,
+	H: Encode + Send + Unpin,
+	N: Encode + Send + Unpin,
 {
-	use sp_core::crypto::Public;
-	use sp_application_crypto::AppKey;
+	use std::convert::TryInto;
 
 	let encoded = localized_payload(round, set_id, &message);
-	let signature = keystore.read()
-		.sign_with(AuthorityId::ID, &public.to_public_crypto_pair(), &encoded[..])
-		.await?
-		.try_into()
-		.map_err(|_| StoreError::Other("Could not convert signature".to_owned()))?;
+	let response = keystore
+		.sign_with(AuthorityId::ID, &public.to_public_crypto_pair(), &encoded[..]).await;
+	let signature = match response {
+		Ok(KeystoreResponse::SignWith(result)) => {
+			result.map_err(|e| Error::Keystore(e.to_string()))?
+		},
+		_ => return Err(Error::Keystore("Signing request canceled".to_owned())),
+	}
+	.try_into()
+	.map_err(|_| Error::Keystore("Could not convert signature".to_owned()))?;
 
-	Ok(grandpa::SignedMessage {
+	Ok(finality_grandpa::SignedMessage {
 		message,
 		signature,
 		id: public,
@@ -1124,34 +1116,46 @@ where
 /// Checks if this node is a voter in the given voter set.
 ///
 /// Returns the key pair of the node that is being used in the current voter set or `None`.
-fn is_voter(
+async fn is_voter(
 	voters: &Arc<VoterSet<AuthorityId>>,
-	keystore: Option<&BareCryptoStorePtr>,
+	keystore: Option<&KeyStorePtr>,
 ) -> Option<AuthorityId> {
 	match keystore {
-		Some(keystore) => voters
-			.iter()
-			.find(|(p, _)| {
-				block_on(keystore.read()
-					.has_keys(&[(p.to_raw_vec(), AuthorityId::ID)]))
-			})
-			.map(|(p, _)| p.clone()),
+		Some(keystore) => {
+			for (p, _) in voters.iter() {
+				let exists = match keystore.has_keys(&[(p.to_raw_vec(), AuthorityId::ID)]).await {
+					Ok(KeystoreResponse::HasKeys(has_keys)) => has_keys,
+					_ => false,
+				};
+				if exists {
+					return Some(p.clone());
+				}
+			}
+			return None;
+		},
 		None => None,
 	}
 }
 
 /// Returns the authority id of this node, if available.
-fn authority_id<'a, I>(
+async fn authority_id<'a, I>(
 	authorities: &mut I,
-	keystore: Option<&BareCryptoStorePtr>,
+	keystore: Option<&KeyStorePtr>,
 ) -> Option<AuthorityId> where
 	I: Iterator<Item = &'a AuthorityId>,
 {
 	match keystore {
 		Some(keystore) => {
-			authorities
-				.find(|p| block_on(keystore.read().has_keys(&[(p.to_raw_vec(), AuthorityId::ID)])))
-				.cloned()
+			for p in authorities {
+				let exists = match keystore.has_keys(&[(p.to_raw_vec(), AuthorityId::ID)]).await {
+					Ok(KeystoreResponse::HasKeys(has_keys)) => has_keys,
+					_ => false,
+				};
+				if exists {
+					return Some(p.clone());
+				}
+			}
+			return None;
 		},
 		None => None,
 	}

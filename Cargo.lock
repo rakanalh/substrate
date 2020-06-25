@@ -6368,6 +6368,7 @@ name = "sc-finality-grandpa"
 version = "0.8.0-rc3"
 dependencies = [
  "assert_matches",
+ "async-trait",
  "derive_more",
  "env_logger 0.7.1",
  "finality-grandpa",
@@ -6733,6 +6734,7 @@ dependencies = [
 name = "sc-service"
 version = "0.8.0-rc3"
 dependencies = [
+ "async-trait",
  "derive_more",
  "directories",
  "exit-future",

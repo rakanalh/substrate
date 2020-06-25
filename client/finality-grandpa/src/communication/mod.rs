@@ -47,6 +47,7 @@ use sc_keystore::proxy::KeystoreProxy;
 use crate::{
 	CatchUp, Commit, CommunicationIn, CommunicationOutH,
 	CompactCommit, Error, Message, SignedMessage,
+	sign_message,
 };
 use crate::environment::HasVoted;
 use gossip::{
@@ -620,9 +621,9 @@ pub struct Round(pub RoundNumber);
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Encode, Decode)]
 pub struct SetId(pub SetIdNumber);
 
-type PendingMessageFuture<Block: BlockT> = Box<dyn Future<
+type PendingMessageFuture<Block: BlockT> = Pin<Box<dyn Future<
 		Output = Result<SignedMessage<Block>, Error,
-		>> + Send + 'static>;
+		>> + Send + Sync + 'static>>;
 
 struct PendingOutgoingMessage<Block: BlockT> {
 	round: RoundNumber,
@@ -657,29 +658,29 @@ impl<Block: BlockT> PendingOutgoingMessage<Block> {
 			let keystore = match &self.keystore {
 				Some(keystore) => keystore.clone(),
 				None => {
-					return Err(Error::Signing("Cannot sign without a keystore".to_string()))
+					return Err(Error::Keystore("Cannot sign without a keystore".to_string()))
 				}
 			};
 
-			self.sign_future = Some(Box::new(sp_finality_grandpa::sign_message(
+			self.sign_future = Some(Pin::new(Box::new(sign_message(
 				keystore.clone(),
 				self.msg,
 				public.clone(),
 				self.round,
 				self.set_id,
-			)));
+			))));
 		}
 
 		Ok(())
 	}
 }
 
-impl<Block: BlockT> Future for PendingOutgoingMessage<Block> {
+impl<Block: BlockT + Unpin> Future for PendingOutgoingMessage<Block> {
 	type Output = Result<SignedMessage<Block>, Error>;
 
 	fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
 		if let Some(mut future) = self.sign_future {
-			let result = ready!(future.poll_unpin(cx));
+			let result = ready!(Pin::new(&mut future).poll(cx));
 			return Poll::Ready(result);
 		}
 		Poll::Pending
@@ -752,7 +753,7 @@ impl<Block: BlockT> Sink<Message<Block>> for OutgoingMessages<Block>
 			let result = ready!(Box::pin(pending_msg).poll_unpin(cx));
 			let target_hash = *(pending_msg.msg.target().0);
 			let signed = result.map_err(
-				|e| Error::Signing(format!(
+				|e| Error::Keystore(format!(
 					"Failed to sign GRANDPA vote for round {} targetting {:?}", self.round, target_hash
 				))
 			)?;

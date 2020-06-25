@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use async_trait::async_trait;
 use log::{info, trace, warn};
 use parking_lot::RwLock;
 use sc_client_api::backend::{AuxStore, Backend, Finalizer, TransactionFor};
@@ -115,6 +116,7 @@ impl<BE, Block: BlockT, Client> GrandpaLightBlockImport<BE, Block, Client> {
 	}
 }
 
+#[async_trait]
 impl<BE, Block: BlockT, Client> BlockImport<Block>
 	for GrandpaLightBlockImport<BE, Block, Client> where
 		NumberFor<Block>: finality_grandpa::BlockNumberOps,
@@ -129,7 +131,7 @@ impl<BE, Block: BlockT, Client> BlockImport<Block>
 	type Error = ConsensusError;
 	type Transaction = TransactionFor<BE, Block>;
 
-	fn import_block(
+	async fn import_block(
 		&mut self,
 		block: BlockImportParams<Block, Self::Transaction>,
 		new_cache: HashMap<well_known_cache_keys::Id, Vec<u8>>,

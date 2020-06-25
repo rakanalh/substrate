@@ -18,6 +18,7 @@
 
 use std::{sync::Arc, collections::HashMap};
 
+use async_trait::async_trait;
 use log::{debug, trace};
 use parity_scale_codec::Encode;
 use parking_lot::RwLockWriteGuard;
@@ -401,6 +402,7 @@ where
 	}
 }
 
+#[async_trait]
 impl<BE, Block: BlockT, Client, SC> BlockImport<Block>
 	for GrandpaBlockImport<BE, Block, Client, SC> where
 		NumberFor<Block>: finality_grandpa::BlockNumberOps,
@@ -413,7 +415,7 @@ impl<BE, Block: BlockT, Client, SC> BlockImport<Block>
 	type Error = ConsensusError;
 	type Transaction = TransactionFor<Client, Block>;
 
-	fn import_block(
+	async fn import_block(
 		&mut self,
 		mut block: BlockImportParams<Block, Self::Transaction>,
 		new_cache: HashMap<well_known_cache_keys::Id, Vec<u8>>,
@@ -437,7 +439,7 @@ impl<BE, Block: BlockT, Client, SC> BlockImport<Block>
 		// we don't want to finalize on `inner.import_block`
 		let mut justification = block.justification.take();
 		let enacts_consensus_change = !new_cache.is_empty();
-		let import_result = (&*self.inner).import_block(block, new_cache);
+		let import_result = (&*self.inner).import_block(block, new_cache).await;
 
 		let mut imported_aux = {
 			match import_result {
