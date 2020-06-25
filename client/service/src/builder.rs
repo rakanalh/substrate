@@ -40,6 +40,7 @@ use futures::{
 };
 use sc_keystore::{
 	Store as Keystore,
+	KeyStorePtr,
 	proxy::{
 		proxy as keystore_proxy,
 		KeystoreProxy,
@@ -50,7 +51,7 @@ use jsonrpc_pubsub::manager::SubscriptionManager;
 use log::{info, warn, error};
 use sc_network::config::{Role, FinalityProofProvider, OnDemand, BoxFinalityProofRequestBuilder};
 use sc_network::NetworkService;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use sp_runtime::generic::BlockId;
 use sp_runtime::traits::{
 	Block as BlockT, NumberFor, SaturatedConversion, HashFor,
@@ -1390,7 +1391,7 @@ fn gen_handler<TBl, TBackend, TExec, TRtApi, TExPool, TRpc>(
 	task_manager: &TaskManager,
 	client: Arc<Client<TBackend, TExec, TBl, TRtApi>>,
 	transaction_pool: Arc<TExPool>,
-	keystore: Arc<RwLock<Keystore>>,
+	keystore: KeyStorePtr,
 	on_demand: Option<Arc<OnDemand<TBl>>>,
 	remote_backend: Option<Arc<dyn RemoteBlockchain<TBl>>>,
 	rpc_extensions_builder: &(dyn RpcExtensionBuilder<Output = TRpc> + Send),
