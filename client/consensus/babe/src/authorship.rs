@@ -175,13 +175,17 @@ async fn claim_secondary_slot(
 					}
 					_ => None,
 				}
-			} else if keystore.read().has_keys(&[(authority_id.to_raw_vec(), AuthorityId::ID)]) {
-				Some(PreDigest::SecondaryPlain(SecondaryPlainPreDigest {
-					slot_number,
-					authority_index: *authority_index as u32,
-				}))
 			} else {
-				None
+				let response = keystore.has_keys(&[(authority_id.to_raw_vec(), AuthorityId::ID)]).await;
+				match response {
+					Ok(KeystoreResponse::HasKeys(has_keys)) if has_keys => {
+						Some(PreDigest::SecondaryPlain(SecondaryPlainPreDigest {
+							slot_number,
+							authority_index: *authority_index as u32,
+						}))
+					},
+					_ => None,
+				}
 			};
 
 			if let Some(pre_digest) = pre_digest {

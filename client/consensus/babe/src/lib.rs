@@ -1345,6 +1345,7 @@ pub fn import_queue<Block: BlockT, Client, Inner>(
 #[cfg(feature = "test-helpers")]
 pub mod test_helpers {
 	use super::*;
+	use futures::executor::block_on;
 
 	/// Try to claim the given slot and return a `BabePreDigest` if
 	/// successful.
@@ -1362,19 +1363,21 @@ pub mod test_helpers {
 			HeaderMetadata<B, Error = ClientError>,
 		C::Api: BabeApi<B>,
 	{
-		let epoch_changes = link.epoch_changes.lock();
-		let epoch = epoch_changes.epoch_data_for_child_of(
-			descendent_query(client),
-			&parent.hash(),
-			parent.number().clone(),
-			slot_number,
-			|slot| Epoch::genesis(&link.config, slot),
-		).unwrap().unwrap();
+		block_on(async {
+			let epoch_changes = link.epoch_changes.lock().await;
+			let epoch = epoch_changes.epoch_data_for_child_of(
+				descendent_query(client),
+				&parent.hash(),
+				parent.number().clone(),
+				slot_number,
+				|slot| Epoch::genesis(&link.config, slot),
+			).unwrap().unwrap();
 
-		authorship::claim_slot(
-			slot_number,
-			&epoch,
-			keystore,
-		).map(|(digest, _)| digest)
+			authorship::claim_slot(
+				slot_number,
+				&epoch,
+				keystore,
+			).await.map(|(digest, _)| digest)
+		})
 	}
 }
