@@ -16,7 +16,6 @@
 // limitations under the License.
 
 //! Block import helpers.
-
 use sp_runtime::traits::{Block as BlockT, DigestItemFor, Header as HeaderT, NumberFor, HashFor};
 use sp_runtime::Justification;
 use serde::{Serialize, Deserialize};
@@ -269,7 +268,7 @@ pub trait BlockImport<B: BlockT> {
 	type Transaction: Send;
 
 	/// Check block preconditions.
-	fn check_block(
+	async fn check_block(
 		&mut self,
 		block: BlockCheckParams<B>,
 	) -> Result<ImportResult, Self::Error>;
@@ -290,11 +289,11 @@ impl<B: BlockT, Transaction: Send> BlockImport<B> for crate::import_queue::BoxBl
 	type Transaction = Transaction;
 
 	/// Check block preconditions.
-	fn check_block(
+	async fn check_block(
 		&mut self,
 		block: BlockCheckParams<B>,
 	) -> Result<ImportResult, Self::Error> {
-		(**self).check_block(block)
+		(**self).check_block(block).await
 	}
 
 	/// Import a block.
@@ -316,11 +315,11 @@ impl<B: BlockT, T: Sync + Send, E: std::error::Error + Send + 'static, Transacti
 	type Error = E;
 	type Transaction = Transaction;
 
-	fn check_block(
+	async fn check_block(
 		&mut self,
 		block: BlockCheckParams<B>,
 	) -> Result<ImportResult, Self::Error> {
-		(&**self).check_block(block)
+		(&**self).check_block(block).await
 	}
 
 	async fn import_block(
@@ -350,6 +349,7 @@ pub trait JustificationImport<B: BlockT> {
 }
 
 /// Finality proof import trait.
+#[async_trait]
 pub trait FinalityProofImport<B: BlockT> {
 	type Error: std::error::Error + Send + 'static;
 
@@ -358,7 +358,7 @@ pub trait FinalityProofImport<B: BlockT> {
 	fn on_start(&mut self) -> Vec<(B::Hash, NumberFor<B>)> { Vec::new() }
 
 	/// Import a Block justification and finalize the given block. Returns finalized block or error.
-	fn import_finality_proof(
+	async fn import_finality_proof(
 		&mut self,
 		hash: B::Hash,
 		number: NumberFor<B>,

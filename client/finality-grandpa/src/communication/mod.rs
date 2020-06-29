@@ -662,20 +662,20 @@ impl<Block: BlockT> PendingOutgoingMessage<Block> {
 				}
 			};
 
-			self.sign_future = Some(Pin::new(Box::new(sign_message(
+			self.sign_future = Some(Box::pin(sign_message(
 				keystore.clone(),
 				self.msg,
 				public.clone(),
 				self.round,
 				self.set_id,
-			))));
+			)));
 		}
 
 		Ok(())
 	}
 }
 
-impl<Block: BlockT + Unpin> Future for PendingOutgoingMessage<Block> {
+impl<Block: BlockT> Future for PendingOutgoingMessage<Block> {
 	type Output = Result<SignedMessage<Block>, Error>;
 
 	fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
@@ -749,7 +749,7 @@ impl<Block: BlockT> Sink<Message<Block>> for OutgoingMessages<Block>
 	type Error = Error;
 
 	fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-		if let Some(pending_msg) = self.pending_msg {
+		if let Some(mut pending_msg) = self.pending_msg {
 			let result = ready!(Box::pin(pending_msg).poll_unpin(cx));
 			let target_hash = *(pending_msg.msg.target().0);
 			let signed = result.map_err(

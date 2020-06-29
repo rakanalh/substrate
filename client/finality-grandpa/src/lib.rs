@@ -1089,8 +1089,8 @@ pub async fn sign_message<H, N>(
 	set_id: SetId,
 ) -> Result<finality_grandpa::SignedMessage<H, N, AuthoritySignature, AuthorityId>, Error>
 where
-	H: Encode + Send + Unpin,
-	N: Encode + Send + Unpin,
+	H: Encode + Send,
+	N: Encode + Send,
 {
 	use std::convert::TryInto;
 

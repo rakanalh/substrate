@@ -26,7 +26,7 @@ use parking_lot::RwLockWriteGuard;
 use sp_blockchain::{BlockStatus, well_known_cache_keys};
 use sc_client_api::{backend::Backend, utils::is_descendent_of};
 use sp_utils::mpsc::TracingUnboundedSender;
-use sp_api::{TransactionFor};
+use sp_api::TransactionFor;
 
 use sp_consensus::{
 	BlockImport, Error as ConsensusError,
@@ -409,6 +409,7 @@ impl<BE, Block: BlockT, Client, SC> BlockImport<Block>
 		DigestFor<Block>: Encode,
 		BE: Backend<Block>,
 		Client: crate::ClientForGrandpa<Block, BE>,
+		SC: Send,
 		for<'a> &'a Client:
 			BlockImport<Block, Error = ConsensusError, Transaction = TransactionFor<Client, Block>>,
 {
@@ -546,11 +547,11 @@ impl<BE, Block: BlockT, Client, SC> BlockImport<Block>
 		Ok(ImportResult::Imported(imported_aux))
 	}
 
-	fn check_block(
+	async fn check_block(
 		&mut self,
 		block: BlockCheckParams<Block>,
 	) -> Result<ImportResult, Self::Error> {
-		self.inner.check_block(block)
+		self.inner.check_block(block).await
 	}
 }
 
@@ -671,7 +672,7 @@ where
 					Error::Blockchain(error) => ConsensusError::ClientImport(error),
 					Error::Client(error) => ConsensusError::ClientImport(error.to_string()),
 					Error::Safety(error) => ConsensusError::ClientImport(error),
-					Error::Signing(error) => ConsensusError::ClientImport(error),
+					Error::Keystore(error) => ConsensusError::ClientImport(error),
 					Error::Timer(error) => ConsensusError::ClientImport(error.to_string()),
 				});
 			},

@@ -255,7 +255,7 @@ pub(crate) async fn import_single_block_metered<B: BlockT, V: Verifier<B>, Trans
 		parent_hash,
 		allow_missing_state: block.allow_missing_state,
 		import_existing: block.import_existing,
-	}))? {
+	}).await)? {
 		BlockImportResult::ImportedUnknown { .. } => (),
 		r => return Ok(r), // Any other successful result means that the block is already imported.
 	}

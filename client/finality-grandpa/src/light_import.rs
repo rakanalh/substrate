@@ -122,6 +122,7 @@ impl<BE, Block: BlockT, Client> BlockImport<Block>
 		NumberFor<Block>: finality_grandpa::BlockNumberOps,
 		DigestFor<Block>: Encode,
 		BE: Backend<Block> + 'static,
+		Client: Send + Sync,
 		for<'a> &'a Client:
 			HeaderBackend<Block>
 			+ BlockImport<Block, Error = ConsensusError, Transaction = TransactionFor<BE, Block>>
@@ -138,17 +139,18 @@ impl<BE, Block: BlockT, Client> BlockImport<Block>
 	) -> Result<ImportResult, Self::Error> {
 		do_import_block::<_, _, _, GrandpaJustification<Block>>(
 			&*self.client, &mut *self.data.write(), block, new_cache
-		)
+		).await
 	}
 
-	fn check_block(
+	async fn check_block(
 		&mut self,
 		block: BlockCheckParams<Block>,
 	) -> Result<ImportResult, Self::Error> {
-		self.client.check_block(block)
+		self.client.check_block(block).await
 	}
 }
 
+#[async_trait]
 impl<BE, Block: BlockT, Client> FinalityProofImport<Block>
 	for GrandpaLightBlockImport<BE, Block, Client> where
 		NumberFor<Block>: finality_grandpa::BlockNumberOps,
@@ -178,7 +180,7 @@ impl<BE, Block: BlockT, Client> FinalityProofImport<Block>
 		out
 	}
 
-	fn import_finality_proof(
+	async fn import_finality_proof(
 		&mut self,
 		hash: Block::Hash,
 		number: NumberFor<Block>,
@@ -194,7 +196,7 @@ impl<BE, Block: BlockT, Client> FinalityProofImport<Block>
 			number,
 			finality_proof,
 			verifier,
-		)
+		).await
 	}
 }
 
@@ -237,7 +239,7 @@ impl<B: BlockT> FinalityProofRequestBuilder<B> for GrandpaFinalityProofRequestBu
 }
 
 /// Try to import new block.
-fn do_import_block<B, C, Block: BlockT, J>(
+async fn do_import_block<B, C, Block: BlockT, J>(
 	mut client: C,
 	data: &mut LightImportData<Block>,
 	mut block: BlockImportParams<Block, TransactionFor<B, Block>>,
@@ -260,7 +262,7 @@ fn do_import_block<B, C, Block: BlockT, J>(
 	// we don't want to finalize on `inner.import_block`
 	let justification = block.justification.take();
 	let enacts_consensus_change = !new_cache.is_empty();
-	let import_result = client.import_block(block, new_cache);
+	let import_result = client.import_block(block, new_cache).await;
 
 	let mut imported_aux = match import_result {
 		Ok(ImportResult::Imported(aux)) => aux,
@@ -296,7 +298,7 @@ fn do_import_block<B, C, Block: BlockT, J>(
 }
 
 /// Try to import finality proof.
-fn do_import_finality_proof<B, C, Block: BlockT, J>(
+async fn do_import_finality_proof<B, C, Block: BlockT, J>(
 	client: C,
 	backend: Arc<B>,
 	authority_set_provider: &dyn AuthoritySetForFinalityChecker<Block>,
@@ -335,7 +337,7 @@ fn do_import_finality_proof<B, C, Block: BlockT, J>(
 			header_to_import,
 			None,
 			None,
-		).map_err(|e| ConsensusError::ClientImport(e))?;
+		).await.map_err(|e| ConsensusError::ClientImport(e))?;
 		assert!(
 			block_to_import.justification.is_none(),
 			"We have passed None as justification to verifier.verify",
@@ -350,7 +352,7 @@ fn do_import_finality_proof<B, C, Block: BlockT, J>(
 			data,
 			block_to_import.convert_transaction(),
 			cache,
-		)?;
+		).await?;
 	}
 
 	// try to import latest justification

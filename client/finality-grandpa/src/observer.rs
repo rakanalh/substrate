@@ -249,7 +249,7 @@ where
 	/// Rebuilds the `self.observer` field using the current authority set
 	/// state. This method should be called when we know that the authority set
 	/// has changed (e.g. as signalled by a voter command).
-	fn rebuild_observer(&mut self) {
+	async fn rebuild_observer(&mut self) {
 		let set_id = self.persistent_data.authority_set.set_id();
 		let voters = Arc::new(self.persistent_data.authority_set.current_authorities());
 
@@ -261,7 +261,7 @@ where
 			&self.network,
 			&self.keystore,
 			None,
-		);
+		).await;
 
 		let last_finalized_number = self.client.info().finalized_number;
 

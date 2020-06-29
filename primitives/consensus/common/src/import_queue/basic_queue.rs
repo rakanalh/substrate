@@ -227,7 +227,7 @@ impl<B: BlockT, Transaction: Send + Sync> BlockImportWorker<B, Transaction> {
 				ToWorkerMsg::ImportFinalityProof(who, hash, number, proof) => {
 					let (_, verif) = block_import_verifier.as_mut()
 						.expect("block_import_verifier is always Some; qed");
-					self.import_finality_proof(verif, who, hash, number, proof);
+					self.import_finality_proof(verif, who, hash, number, proof).await;
 				},
 				ToWorkerMsg::ImportJustification(who, hash, number, justification) => {
 					self.import_justification(who, hash, number, justification);
@@ -256,7 +256,7 @@ impl<B: BlockT, Transaction: Send + Sync> BlockImportWorker<B, Transaction> {
 		(block_import, verifier)
 	}
 
-	fn import_finality_proof<V: 'static + Verifier<B>>(
+	async fn import_finality_proof<V: 'static + Verifier<B>>(
 		&mut self,
 		verifier: &mut V,
 		who: Origin,
@@ -264,18 +264,20 @@ impl<B: BlockT, Transaction: Send + Sync> BlockImportWorker<B, Transaction> {
 		number: NumberFor<B>,
 		finality_proof: Vec<u8>
 	) {
-		let result = self.finality_proof_import.as_mut().map(|finality_proof_import| {
-			finality_proof_import.import_finality_proof(hash, number, finality_proof, verifier)
-				.map_err(|e| {
-					debug!(
-						"Finality proof import failed with {:?} for hash: {:?} number: {:?} coming from node: {:?}",
-						e,
-						hash,
-						number,
-						who,
-					);
-				})
-		}).unwrap_or(Err(()));
+		let finality_proof_import = match self.finality_proof_import.as_mut() {
+			Some(finality_proof_import) => finality_proof_import,
+			None => return (),
+		};
+		let result = finality_proof_import.import_finality_proof(hash, number, finality_proof, verifier).await
+			.map_err(|e| {
+				debug!(
+					"Finality proof import failed with {:?} for hash: {:?} number: {:?} coming from node: {:?}",
+					e,
+					hash,
+					number,
+					who,
+				);
+			});
 
 		trace!(target: "sync", "Imported finality proof for {}/{}", number, hash);
 		self.result_sender.finality_proof_imported(who, (hash, number), result);
