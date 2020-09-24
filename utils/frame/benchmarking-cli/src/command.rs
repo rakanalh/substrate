@@ -28,9 +28,9 @@ use sc_service::{Configuration, NativeExecutionDispatch};
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT, NumberFor};
 use sp_core::{
 	testing::KeyStore,
-	traits::{CryptoStorePtr, KeystoreExt},
 	offchain::{OffchainExt, testing::TestOffchainExt},
 };
+use sp_keystore::{CryptoStorePtr, KeystoreExt};
 use std::fmt::Debug;
 
 impl BenchmarkCmd {
