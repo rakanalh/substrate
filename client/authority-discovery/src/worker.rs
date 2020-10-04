@@ -45,7 +45,7 @@ use sc_network::{
 };
 use sp_authority_discovery::{AuthorityDiscoveryApi, AuthorityId, AuthoritySignature, AuthorityPair};
 use sp_core::crypto::{key_types, Pair};
-use sp_keystore::CryptoStorePtr;
+use sp_keystore::{CryptoStore, CryptoStorePtr};
 use sp_runtime::{traits::Block as BlockT, generic::BlockId};
 use sp_api::ProvideRuntimeApi;
 
@@ -360,14 +360,13 @@ where
 			self.client.as_ref(),
 		).await?.into_iter().map(Into::into).collect::<Vec<_>>();
 
-		let signatures = key_store
-			.sign_with_all(
-				key_types::AUTHORITY_DISCOVERY,
-				keys.clone(),
-				serialized_addresses.as_slice(),
-			)
-			.await
-			.map_err(|_| Error::Signing)?;
+		let signatures = CryptoStore::sign_with_all(
+			key_store,
+			key_types::AUTHORITY_DISCOVERY,
+			keys.clone(),
+			serialized_addresses.as_slice(),
+		).await.map_err(|_| Error::Signing)?;
+
 		for (sign_result, key) in signatures.into_iter().zip(keys) {
 			let mut signed_addresses = vec![];
 
@@ -396,11 +395,12 @@ where
 
 		let local_keys = match &self.role {
 			Role::Authority(key_store) => {
-				key_store
-					.sr25519_public_keys(key_types::AUTHORITY_DISCOVERY)
-					.await
-					.into_iter()
-					.collect::<HashSet<_>>()
+				CryptoStore::sr25519_public_keys(
+					key_store,
+					key_types::AUTHORITY_DISCOVERY
+				).await
+				 .into_iter()
+				 .collect::<HashSet<_>>()
 			},
 			Role::Sentry => HashSet::new(),
 		};
